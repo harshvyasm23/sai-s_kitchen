@@ -23,15 +23,23 @@ object TelegramBot {
     private fun prefs(c: Context) = c.applicationContext.getSharedPreferences("sai_telegram", Context.MODE_PRIVATE)
 
     fun token(c: Context): String = prefs(c).getString("token", "") ?: ""
-    fun chatId(c: Context): Long = prefs(c).getLong("chat", 0L)
+    fun chats(c: Context): Set<Long> =
+        (prefs(c).getString("chats", "") ?: "").split(",").mapNotNull { it.trim().toLongOrNull() }.toSet()
     fun pairingCode(c: Context): String = prefs(c).getString("code", "") ?: ""
     fun isConfigured(c: Context) = token(c).isNotBlank()
-    fun isConnected(c: Context) = isConfigured(c) && chatId(c) != 0L
+    fun isConnected(c: Context) = isConfigured(c) && chats(c).isNotEmpty()
+
+    /** New pairing code so another person/chat can be added. */
+    fun newCode(c: Context): String {
+        val code = (1000..9999).random().toString()
+        prefs(c).edit().putString("code", code).apply()
+        return code
+    }
 
     fun saveToken(c: Context, token: String) {
         val code = (1000..9999).random().toString()
-        prefs(c).edit().putString("token", token.trim()).putLong("chat", 0L).putLong("offset", 0L)
-            .putString("code", code).remove("batch").apply()
+        prefs(c).edit().putString("token", token.trim()).putString("chats", "").putLong("offset", 0L)
+            .putString("code", code).apply()
         schedule(c)
     }
 
@@ -102,20 +110,20 @@ object TelegramBot {
     private fun handle(context: Context, store: KitchenStore, text: String, chat: Long, sent: Long): String? {
         val p = prefs(context)
         val t = text.trim()
-        val locked = chatId(context)
-        if (locked == 0L) {
+        val known = chats(context)
+        if (chat !in known) {
             val code = pairingCode(context)
-            if (t.startsWith("/start") && code.isNotEmpty() && t.removePrefix("/start").trim() == code) {
-                p.edit().putLong("chat", chat).remove("code").apply()
-                return "Connected ✅ Sai's Kitchen app is linked to this chat.\n\n$HELP"
+            if (code.isEmpty()) return null
+            if (t.startsWith("/start") && t.removePrefix("/start").trim() == code) {
+                p.edit().putString("chats", (known + chat).joinToString(",")).remove("code").apply()
+                return "Connected ✅ This chat can now send entries to the Sai's Kitchen app.\n\n$HELP"
             }
             return "To connect, send: /start <the 4-digit code shown in the app's Settings>"
         }
-        if (chat != locked) return null
         if (t.startsWith("/help") || t.startsWith("/start")) return HELP
         if (t.startsWith("/undo")) {
-            val b = Batch.fromJson(p.getString("batch", null)) ?: return "Nothing to undo."
-            p.edit().remove("batch").apply()
+            val b = Batch.fromJson(p.getString("batch_$chat", null)) ?: return "Nothing to undo."
+            p.edit().remove("batch_$chat").apply()
             return EntryWriter.undo(store, b)
         }
         val today = LocalDate.now()
@@ -132,7 +140,7 @@ object TelegramBot {
         if (date == null) { date = Instant.ofEpochSecond(if (sent > 0) sent else System.currentTimeMillis() / 1000).atZone(ZoneId.systemDefault()).toLocalDate(); note = "(no date in message, used $date)\n" }
         else if (!near(date)) return "The date $date is more than a month away from today, so I did not save anything. Please resend with the right date."
         val (summary, batch) = EntryWriter.apply(store, parsed, date!!)
-        if (batch.tiffinIds.isNotEmpty() || batch.orderIds.isNotEmpty() || batch.customerIds.isNotEmpty()) p.edit().putString("batch", batch.toJson()).apply()
+        if (batch.tiffinIds.isNotEmpty() || batch.orderIds.isNotEmpty() || batch.customerIds.isNotEmpty()) p.edit().putString("batch_$chat", batch.toJson()).apply()
         return note + summary
     }
 }

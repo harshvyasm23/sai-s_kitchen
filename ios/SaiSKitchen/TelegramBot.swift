@@ -6,22 +6,23 @@ import Foundation
 enum TelegramBot {
     private static let d = UserDefaults.standard
     static var token: String { d.string(forKey: "tg_token") ?? "" }
-    static var chatId: Int64 { Int64(d.string(forKey: "tg_chat") ?? "0") ?? 0 }
+    static var chats: Set<Int64> { Set((d.string(forKey: "tg_chats") ?? "").split(separator: ",").compactMap { Int64($0) }) }
     static var pairingCode: String { d.string(forKey: "tg_code") ?? "" }
     static var isConfigured: Bool { !token.isEmpty }
-    static var isConnected: Bool { isConfigured && chatId != 0 }
+    static var isConnected: Bool { isConfigured && !chats.isEmpty }
+
+    static func newCode() { d.set(String(Int.random(in: 1000...9999)), forKey: "tg_code") }
     private static var busy = false
 
     static func saveToken(_ t: String) {
         d.set(t.trimmingCharacters(in: .whitespaces), forKey: "tg_token")
-        d.set("0", forKey: "tg_chat")
+        d.set("", forKey: "tg_chats")
         d.set(0, forKey: "tg_offset")
         d.set(String(Int.random(in: 1000...9999)), forKey: "tg_code")
-        d.removeObject(forKey: "tg_batch")
-    }
+        }
 
     static func disconnect() {
-        for k in ["tg_token", "tg_chat", "tg_offset", "tg_code", "tg_batch"] { d.removeObject(forKey: k) }
+        for k in ["tg_token", "tg_chats", "tg_offset", "tg_code"] { d.removeObject(forKey: k) }
     }
 
     private static let help = "Send your daily list like this:\n\nDate - 06.10.26\ndaily tiffins\n1. Pranav 1 tiffin at pasila\n2. Meena 2 tiffins at Iso Omena\n\nAlacarte\n1. Neha - 2 kg poha 12 euro, roti 20 pcs 0.5 each at Pasila\n\nCatering\n1. Rohit - chole chana 10 euro\n\nCommands: /undo removes the last message's entries, /help shows this."
@@ -66,19 +67,19 @@ enum TelegramBot {
 
     private static func handle(store: KitchenStore, text: String, chat: Int64, sent: Double) -> String? {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if chatId == 0 {
-            if t.hasPrefix("/start"), !pairingCode.isEmpty, t.dropFirst(6).trimmingCharacters(in: .whitespaces) == pairingCode {
-                d.set(String(chat), forKey: "tg_chat")
+        if !chats.contains(chat) {
+            if pairingCode.isEmpty { return nil }
+            if t.hasPrefix("/start"), t.dropFirst(6).trimmingCharacters(in: .whitespaces) == pairingCode {
+                d.set((chats.union([chat])).map(String.init).joined(separator: ","), forKey: "tg_chats")
                 d.removeObject(forKey: "tg_code")
-                return "Connected ✅ Sai's Kitchen app is linked to this chat.\n\n" + help
+                return "Connected ✅ This chat can now send entries to the Sai's Kitchen app.\n\n" + help
             }
             return "To connect, send: /start <the 4-digit code shown in the app's Settings>"
         }
-        if chat != chatId { return nil }
         if t.hasPrefix("/help") || t.hasPrefix("/start") { return help }
         if t.hasPrefix("/undo") {
-            guard let b = d.string(forKey: "tg_batch").flatMap(EntryBatch.from) else { return "Nothing to undo." }
-            d.removeObject(forKey: "tg_batch")
+            guard let b = d.string(forKey: "tg_batch_\(chat)").flatMap(EntryBatch.from) else { return "Nothing to undo." }
+            d.removeObject(forKey: "tg_batch_\(chat)")
             return EntryWriter.undo(store: store, batch: b)
         }
         let cal = Calendar.current
@@ -104,7 +105,7 @@ enum TelegramBot {
             return "The date \(AppFormatters.isoDate(date!)) is more than a month away from today, so I did not save anything. Please resend with the right date."
         }
         let (summary, batch) = EntryWriter.apply(store: store, parsed: parsed, date: date!)
-        if !batch.tiffinIds.isEmpty || !batch.orderIds.isEmpty || !batch.customerIds.isEmpty { d.set(batch.json, forKey: "tg_batch") }
+        if !batch.tiffinIds.isEmpty || !batch.orderIds.isEmpty || !batch.customerIds.isEmpty { d.set(batch.json, forKey: "tg_batch_\(chat)") }
         return note + summary
     }
 }
@@ -223,7 +224,12 @@ struct TelegramSettingsCard: View {
                 Button("Save token") { TelegramBot.saveToken(token); token = ""; version += 1 }.disabled(!token.contains(":"))
             } else {
                 if TelegramBot.isConnected {
-                    Text("✅ Connected").font(.footnote)
+                    Text("✅ Connected (\(TelegramBot.chats.count) chat(s))").font(.footnote)
+                    if !TelegramBot.pairingCode.isEmpty {
+                        Text("To add another person: they send your bot\n/start \(TelegramBot.pairingCode)").font(.footnote.bold())
+                    } else {
+                        Button("Add another person / chat") { TelegramBot.newCode(); version += 1 }.buttonStyle(.borderless)
+                    }
                 } else {
                     Text("3. Open your bot in Telegram and send:\n/start \(TelegramBot.pairingCode)\nThen tap Check now.").font(.footnote.bold())
                 }

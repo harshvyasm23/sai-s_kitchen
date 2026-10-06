@@ -35,7 +35,9 @@ fun TelegramCard(store: KitchenStore) {
                 Text("3. Open your bot in Telegram and send:\n/start $code", fontWeight = FontWeight.Bold)
                 Text("Then tap Check now.", fontSize = 12.sp)
             } else {
-                Text("✅ Connected. Messages are checked every 15 seconds while the app is open and about every 15 minutes in the background.", fontSize = 13.sp)
+                Text("✅ Connected (${TelegramBot.chats(context).size} chat(s)). Messages are checked every 15 seconds while the app is open and about every 15 minutes in the background.", fontSize = 13.sp)
+                if (code.isNotEmpty()) Text("To add another person: they send your bot\n/start $code", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                else TextButton(onClick = { TelegramBot.newCode(context); version++ }) { Text("Add another person / chat") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { scope.launch { status = "Checking..."; status = TelegramBot.poll(context, store); version++ } }) { Text("Check now") }
