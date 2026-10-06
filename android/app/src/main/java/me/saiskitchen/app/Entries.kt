@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.Restaurant
@@ -23,6 +24,7 @@ import java.time.LocalDate
 @Composable
 fun NewEntryScreen(onOpen: (String) -> Unit) {
     TabScreen("New Entry") {
+        ActionCard(Icons.AutoMirrored.Filled.Chat, "WhatsApp Message", "Paste your daily WhatsApp list and add all entries at once", Brand.success) { onOpen("whatsapp") }
         ActionCard(Icons.Default.Fastfood, "Tiffin Entry", "Record daily tiffin delivery with noon and evening quantities", Brand.primary) { onOpen("tiffin") }
         ActionCard(Icons.Default.Restaurant, "Catering Order", "Create party or catering orders with multiple items", Brand.secondary) { onOpen("catering") }
         ActionCard(Icons.AutoMirrored.Filled.List, "View All Entries", "Browse all tiffin and catering records", Brand.info) { onOpen("all") }

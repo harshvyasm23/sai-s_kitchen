@@ -1,5 +1,6 @@
 package me.saiskitchen.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -37,8 +38,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val store = KitchenStore(applicationContext)
-        setContent { SaiTheme(store.themeMode) { AppRoot(store) } }
+        val shared = sharedText(intent)
+        setContent { SaiTheme(store.themeMode) { AppRoot(store, shared) } }
     }
+
+    private fun sharedText(i: Intent?): String? =
+        if (i?.action == Intent.ACTION_SEND && i.type?.startsWith("text/") == true) i.getStringExtra(Intent.EXTRA_TEXT) else null
 }
 
 private data class TabItem(val label: String, val icon: ImageVector)
@@ -53,9 +58,10 @@ private val TABS = listOf(
 )
 
 @Composable
-fun AppRoot(store: KitchenStore) {
+fun AppRoot(store: KitchenStore, sharedText: String? = null) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    var overlay by rememberSaveable { mutableStateOf<String?>(null) }
+    var overlay by rememberSaveable { mutableStateOf<String?>(if (sharedText != null) "whatsapp" else null) }
+    var pasted by rememberSaveable { mutableStateOf(sharedText ?: "") }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     LaunchedEffect(Unit) { update = withContext(Dispatchers.IO) { Updater.check() } }
 
@@ -63,6 +69,7 @@ fun AppRoot(store: KitchenStore) {
         BackHandler { overlay = null }
         val close = { overlay = null }
         when (overlay) {
+            "whatsapp" -> WhatsAppScreen(store, pasted) { pasted = ""; close() }
             "tiffin" -> AddTiffinScreen(store, close)
             "catering" -> AddCateringScreen(store, close)
             "all" -> AllEntriesScreen(store, close)
