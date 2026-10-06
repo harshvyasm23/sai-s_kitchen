@@ -103,7 +103,7 @@ fun AddTiffinScreen(store: KitchenStore, onClose: () -> Unit) {
     )
 }
 
-private class DraftItem(val key: Int) {
+internal class DraftItem(val key: Int) {
     var name by mutableStateOf("")
     var qty by mutableStateOf("0")
     var unitPrice by mutableStateOf("0")
@@ -176,42 +176,4 @@ fun AddCateringScreen(store: KitchenStore, onClose: () -> Unit) {
         onDismissRequest = { error = false }, confirmButton = { TextButton(onClick = { error = false }) { Text("OK") } },
         title = { Text("Cannot Add Order") }, text = { Text("Select at least one customer and add at least one valid item.") },
     )
-}
-
-@Composable
-fun AllEntriesScreen(store: KitchenStore, onClose: () -> Unit) {
-    val cur = store.settings.currency
-    var delTiffin by remember { mutableStateOf<TiffinEntry?>(null) }
-    var delOrder by remember { mutableStateOf<CateringOrder?>(null) }
-    OverlayScaffold("All Entries", onClose, scrollable = false) {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item { Text("Tiffin Entries", fontWeight = FontWeight.Bold, fontSize = 18.sp) }
-            if (store.tiffins.isEmpty()) item { Text("None yet", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            items(store.tiffins.reversed(), key = { it.id }) { e ->
-                EntryCard(store.customerName(e.customerId),
-                    "${Fmt.displayDate(e.date)} • Noon ${e.noonQty.clean()}, Evening ${e.eveningQty.clean()}",
-                    Fmt.currency(e.total, cur), Brand.primary) {
-                    IconButton(onClick = { delTiffin = e }) { Icon(Icons.Default.Delete, "Delete", tint = Brand.error) }
-                }
-            }
-            item { Text("Catering Orders", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(top = 12.dp)) }
-            if (store.cateringOrders.isEmpty()) item { Text("None yet", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            items(store.cateringOrders.reversed(), key = { it.id }) { o ->
-                EntryCard(store.customerName(o.customerId), "${Fmt.displayDate(o.date)} • ${o.items.size} item(s)",
-                    Fmt.currency(o.total, cur), Brand.secondary) {
-                    IconButton(onClick = { delOrder = o }) { Icon(Icons.Default.Delete, "Delete", tint = Brand.error) }
-                }
-            }
-        }
-    }
-    delTiffin?.let { e ->
-        AlertDialog(onDismissRequest = { delTiffin = null }, title = { Text("Delete this entry?") },
-            confirmButton = { TextButton(onClick = { store.deleteTiffin(e); delTiffin = null }) { Text("Delete", color = Brand.error) } },
-            dismissButton = { TextButton(onClick = { delTiffin = null }) { Text("Cancel") } })
-    }
-    delOrder?.let { o ->
-        AlertDialog(onDismissRequest = { delOrder = null }, title = { Text("Delete this order?") },
-            confirmButton = { TextButton(onClick = { store.deleteCateringOrder(o); delOrder = null }) { Text("Delete", color = Brand.error) } },
-            dismissButton = { TextButton(onClick = { delOrder = null }) { Text("Cancel") } })
-    }
 }

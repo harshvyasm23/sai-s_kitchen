@@ -45,6 +45,14 @@ class KitchenStore(context: Context) {
     fun addTiffins(entries: List<TiffinEntry>) {
         tiffins = (tiffins + entries).sortedWith(compareBy<TiffinEntry> { it.date }.thenBy { it.createdAt }); saveTiffins()
     }
+    fun updateTiffin(e: TiffinEntry) {
+        tiffins = tiffins.map { if (it.id == e.id) e.copy(updatedAt = System.currentTimeMillis()) else it }
+            .sortedWith(compareBy<TiffinEntry> { it.date }.thenBy { it.createdAt }); saveTiffins()
+    }
+    fun updateCateringOrder(o: CateringOrder) {
+        cateringOrders = cateringOrders.map { if (it.id == o.id) o.copy(updatedAt = System.currentTimeMillis()) else it }
+            .sortedWith(compareBy<CateringOrder> { it.date }.thenBy { it.createdAt }); saveCatering()
+    }
     fun deleteTiffin(e: TiffinEntry) { tiffins = tiffins.filter { it.id != e.id }; saveTiffins() }
 
     fun addCateringOrders(orders: List<CateringOrder>) {
@@ -54,6 +62,22 @@ class KitchenStore(context: Context) {
 
     fun updateSettings(s: AppSettings) { settings = s; prefs.edit().putString(K_SETTINGS, s.toJson().toString()).apply() }
     fun updateTheme(m: ThemeMode) { themeMode = m; prefs.edit().putString(K_THEME, m.name).apply() }
+
+    /** Adds records from a backup file (Expo-app or native format). Existing ids are skipped, nothing is overwritten. */
+    fun importJson(text: String): ImportResult {
+        val parsed = DataIo.parse(text)
+        val haveC = customers.map { it.id }.toSet()
+        val haveT = tiffins.map { it.id }.toSet()
+        val haveO = cateringOrders.map { it.id }.toSet()
+        val newC = parsed.customers.filter { it.id !in haveC }
+        val newT = parsed.tiffins.filter { it.id !in haveT }
+        val newO = parsed.orders.filter { it.id !in haveO }
+        if (newC.isNotEmpty()) { customers = customers + newC; saveCustomers() }
+        if (newT.isNotEmpty()) addTiffins(newT)
+        if (newO.isNotEmpty()) addCateringOrders(newO)
+        val found = parsed.customers.size + parsed.tiffins.size + parsed.orders.size
+        return ImportResult(newC.size, newT.size, newO.size, found - newC.size - newT.size - newO.size)
+    }
 
     fun clearAllData() {
         customers = emptyList(); tiffins = emptyList(); cateringOrders = emptyList()
@@ -169,4 +193,17 @@ private fun settingsFrom(o: JSONObject): AppSettings {
         o.optDouble("defaultDeliveryCharge", d.defaultDeliveryCharge), o.optString("companyName", d.companyName),
         o.optString("companyPhone", d.companyPhone), o.optString("companyAddress", d.companyAddress),
     )
+}
+
+data class ImportResult(val customers: Int, val tiffins: Int, val orders: Int, val skipped: Int) {
+    val total get() = customers + tiffins + orders
+    fun message(): String = if (total == 0) {
+        if (skipped > 0) "Nothing new: all $skipped records are already in the app." else "No records found in that file."
+    } else buildString {
+        append("Imported:\n")
+        if (customers > 0) append("• $customers customers\n")
+        if (tiffins > 0) append("• $tiffins tiffin entries\n")
+        if (orders > 0) append("• $orders catering orders\n")
+        if (skipped > 0) append("($skipped already existed and were skipped)")
+    }
 }

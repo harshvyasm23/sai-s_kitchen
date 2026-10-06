@@ -66,6 +66,7 @@ fun AppRoot(store: KitchenStore) {
             "tiffin" -> AddTiffinScreen(store, close)
             "catering" -> AddCateringScreen(store, close)
             "all" -> AllEntriesScreen(store, close)
+            "monthly" -> MonthlyEntriesScreen(store, close)
             "invoice" -> GenerateInvoiceScreen(store, close)
             "outstanding" -> OutstandingScreen(store, close)
         }
@@ -97,7 +98,7 @@ fun AppRoot(store: KitchenStore) {
                 2 -> NewEntryScreen { overlay = it }
                 3 -> ReportsScreen(store)
                 4 -> InvoicesScreen { overlay = it }
-                5 -> SettingsScreen(store)
+                5 -> SettingsScreen(store) { overlay = it }
             }
         }
     }

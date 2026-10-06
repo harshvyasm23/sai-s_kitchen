@@ -1,6 +1,9 @@
 package me.saiskitchen.app
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
@@ -11,8 +14,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun SettingsScreen(store: KitchenStore) {
+fun SettingsScreen(store: KitchenStore, onOpen: (String) -> Unit) {
+    val context = LocalContext.current
     var showClear by remember { mutableStateOf(false) }
+    var showExport by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            message = try {
+                val text = context.contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }
+                store.importJson(text).message()
+            } catch (e: Exception) {
+                "Import failed. Please choose a Sai's Kitchen backup (.json) file.\n(${e.message})"
+            }
+        }
+    }
     val s = store.settings
     TabScreen("Settings") {
         AppCard {
@@ -21,6 +37,19 @@ fun SettingsScreen(store: KitchenStore) {
                 ThemeMode.values().forEach {
                     FilterChip(selected = store.themeMode == it, onClick = { store.updateTheme(it) }, label = { Text(it.label) })
                 }
+            }
+        }
+        AppCard {
+            Text("Quick Actions", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = { onOpen("monthly") }, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) { Text("Monthly Entries"); Text("View and edit entries by month", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            TextButton(onClick = { onOpen("all") }, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) { Text("View All Entries"); Text("Browse entries by date range", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            TextButton(onClick = { onOpen("outstanding") }, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) { Text("Outstanding Report"); Text("Check pending payments", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
         AppCard {
@@ -40,6 +69,10 @@ fun SettingsScreen(store: KitchenStore) {
         AppCard {
             Text("Data Management", fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Import Data (from backup file)") }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = { showExport = true }, modifier = Modifier.fillMaxWidth()) { Text("Export Data (backup / share)") }
+            Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = { store.seedSampleData() }, modifier = Modifier.fillMaxWidth()) { Text("Generate Test Data") }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = { showClear = true }, modifier = Modifier.fillMaxWidth()) {
@@ -53,6 +86,23 @@ fun SettingsScreen(store: KitchenStore) {
             SummaryRow("Tiffin Entries", "${store.tiffins.size}")
             SummaryRow("Catering Orders", "${store.cateringOrders.size}")
         }
+    }
+    if (showExport) AlertDialog(
+        onDismissRequest = { showExport = false }, title = { Text("Export Data") },
+        text = {
+            Column {
+                listOf("Customers Only" to "customers", "Tiffin Entries Only" to "tiffins", "Catering Orders Only" to "catering", "Everything (Backup)" to "all").forEach { (label, kind) ->
+                    TextButton(onClick = { showExport = false; DataIo.share(context, store, kind) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(label, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        },
+        confirmButton = {}, dismissButton = { TextButton(onClick = { showExport = false }) { Text("Cancel") } },
+    )
+    message?.let { m ->
+        AlertDialog(onDismissRequest = { message = null }, title = { Text("Import") }, text = { Text(m) },
+            confirmButton = { TextButton(onClick = { message = null }) { Text("OK") } })
     }
     if (showClear) AlertDialog(
         onDismissRequest = { showClear = false }, title = { Text("Clear All Data?") },
