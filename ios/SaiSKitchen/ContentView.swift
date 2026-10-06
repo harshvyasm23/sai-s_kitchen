@@ -849,40 +849,6 @@ struct GenerateInvoiceView: View {
     }
 }
 
-struct AllEntriesView: View {
-    @Environment(KitchenStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var scheme
-    private let theme = AppTheme()
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("Tiffin Entries") {
-                    ForEach(store.tiffins) { entry in
-                        EntryCard(title: store.customerName(for: entry.customerId), subtitle: "\(AppFormatters.displayDate(entry.date)) • Noon \(entry.noonQty.clean), Evening \(entry.eveningQty.clean)", total: AppFormatters.currency(entry.total, code: store.settings.currency), color: theme.primary)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-                    .onDelete { indexSet in indexSet.map { store.tiffins[$0] }.forEach(store.deleteTiffin) }
-                }
-                Section("Catering Orders") {
-                    ForEach(store.cateringOrders) { order in
-                        EntryCard(title: store.customerName(for: order.customerId), subtitle: "\(AppFormatters.displayDate(order.date)) • \(order.items.count) item(s)", total: AppFormatters.currency(order.total, code: store.settings.currency), color: theme.secondary)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-                    .onDelete { indexSet in indexSet.map { store.cateringOrders[$0] }.forEach(store.deleteCateringOrder) }
-                }
-            }
-            .navigationTitle("All Entries")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-            .scrollContentBackground(.hidden)
-            .background(theme.background(scheme))
-        }
-    }
-}
-
 struct EntryCard: View {
     @Environment(\.colorScheme) private var scheme
     let title: String
@@ -947,6 +913,12 @@ struct SettingsView: View {
     @Environment(KitchenStore.self) private var store
     @Environment(\.colorScheme) private var scheme
     @State private var showingClear = false
+    @State private var showMonthly = false
+    @State private var showAll = false
+    @State private var showOutstanding = false
+    @State private var showImporter = false
+    @State private var exportFile: ExportFile?
+    @State private var message: String?
     private let theme = AppTheme()
 
     var body: some View {
@@ -964,6 +936,11 @@ struct SettingsView: View {
                             }
                             .pickerStyle(.segmented)
                         }
+                        SettingsSection(title: "Quick Actions", icon: "bolt.fill") {
+                            Button { showMonthly = true } label: { Label("Monthly Entries", systemImage: "calendar") }
+                            Button { showAll = true } label: { Label("View All Entries", systemImage: "list.bullet.rectangle") }
+                            Button { showOutstanding = true } label: { Label("Outstanding Report", systemImage: "exclamationmark.circle") }
+                        }
                         SettingsSection(title: "Business Defaults", icon: "doc.text.fill") {
                             SettingsTextRow(label: "Company", value: store.settings.companyName)
                             SettingsTextRow(label: "Phone", value: store.settings.companyPhone)
@@ -971,6 +948,13 @@ struct SettingsView: View {
                             SettingsTextRow(label: "Default Tiffin", value: AppFormatters.currency(store.settings.defaultTiffinPrice, code: store.settings.currency))
                         }
                         SettingsSection(title: "Data Management", icon: "externaldrive.fill") {
+                            Button { showImporter = true } label: { Label("Import Data", systemImage: "square.and.arrow.down") }
+                            Menu {
+                                Button("Everything") { export("all") }
+                                Button("Customers only") { export("customers") }
+                                Button("Tiffin entries only") { export("tiffins") }
+                                Button("Catering orders only") { export("catering") }
+                            } label: { Label("Export Data", systemImage: "square.and.arrow.up") }
                             Button { self.store.seedSampleData() } label: { Label("Generate Test Data", systemImage: "plus.square.on.square") }
                             Button(role: .destructive) { showingClear = true } label: { Label("Clear All Data", systemImage: "trash") }
                         }
@@ -985,10 +969,44 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .sheet(isPresented: $showMonthly) { MonthlyEntriesView() }
+            .sheet(isPresented: $showAll) { AllEntriesView() }
+            .sheet(isPresented: $showOutstanding) { OutstandingReportView() }
+            .sheet(item: $exportFile) { ShareSheet(url: $0.url) }
+            .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json, .plainText, .data]) { result in
+                switch result {
+                case .success(let url):
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    do {
+                        let data = try Data(contentsOf: url)
+                        message = try store.importData(data).message
+                    } catch {
+                        message = error.localizedDescription
+                    }
+                case .failure(let error):
+                    message = error.localizedDescription
+                }
+            }
+            .alert("Import", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: { Text(message ?? "") }
             .alert("Clear All Data?", isPresented: $showingClear) {
                 Button("Cancel", role: .cancel) {}
                 Button("Clear", role: .destructive) { store.clearAllData() }
             } message: { Text("This removes customers, tiffin entries, and catering orders from this iOS app.") }
+        }
+    }
+
+    private func export(_ kind: String) {
+        do {
+            let data = try DataExchange.build(store: store, kind: kind)
+            let name = "saiskitchen-\(kind)-\(AppFormatters.isoDate(Date())).json"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+            try data.write(to: url)
+            exportFile = ExportFile(url: url)
+        } catch {
+            message = error.localizedDescription
         }
     }
 }

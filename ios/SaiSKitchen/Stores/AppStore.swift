@@ -76,6 +76,34 @@ final class KitchenStore {
         save(cateringOrders, key: cateringKey)
     }
 
+    func updateCatering(_ order: CateringOrder) {
+        guard let index = cateringOrders.firstIndex(where: { $0.id == order.id }) else { return }
+        var updated = order
+        updated.updatedAt = Date()
+        cateringOrders[index] = updated
+        save(cateringOrders, key: cateringKey)
+    }
+
+    /// Adds records from a backup file (old Expo app, Android or iPhone export). Existing ids are skipped; nothing is overwritten.
+    func importData(_ data: Data) throws -> ImportSummary {
+        let parsed = try DataExchange.parse(data)
+        let haveCustomers = Set(customers.map(\.id))
+        let haveTiffins = Set(tiffins.map(\.id))
+        let haveOrders = Set(cateringOrders.map(\.id))
+        let newCustomers = parsed.customers.filter { !haveCustomers.contains($0.id) }
+        let newTiffins = parsed.tiffins.filter { !haveTiffins.contains($0.id) }
+        let newOrders = parsed.orders.filter { !haveOrders.contains($0.id) }
+        if !newCustomers.isEmpty {
+            customers.append(contentsOf: newCustomers)
+            save(customers, key: customersKey)
+        }
+        if !newTiffins.isEmpty { addMultipleTiffins(newTiffins) }
+        if !newOrders.isEmpty { addCateringOrders(newOrders) }
+        let found = parsed.customers.count + parsed.tiffins.count + parsed.orders.count
+        let added = newCustomers.count + newTiffins.count + newOrders.count
+        return ImportSummary(customers: newCustomers.count, tiffins: newTiffins.count, orders: newOrders.count, skipped: found - added)
+    }
+
     func deleteCateringOrder(_ order: CateringOrder) {
         cateringOrders.removeAll { $0.id == order.id }
         save(cateringOrders, key: cateringKey)

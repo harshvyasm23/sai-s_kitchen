@@ -1,0 +1,38 @@
+name: iOS build
+
+on:
+  push:
+    paths: ['ios/**', '.github/workflows/ios-build.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (unsigned)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project SaiSKitchen.xcodeproj -scheme SaiSKitchen \
+            -sdk iphoneos -configuration Release -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log | tail -n 40
+        continue-on-error: true
+        id: build
+      - name: Report errors
+        if: steps.build.outcome == 'failure'
+        working-directory: ios
+        run: |
+          grep -E "error:" build.log | sort -u | head -30 | while read -r l; do echo "::error::$l"; done
+          exit 1
+      - name: Package IPA
+        working-directory: ios
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/SaiSKitchen.app Payload/
+          zip -qr SaisKitchen.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SaisKitchen-ipa
+          path: ios/SaisKitchen.ipa
