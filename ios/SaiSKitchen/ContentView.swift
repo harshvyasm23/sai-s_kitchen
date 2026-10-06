@@ -1078,11 +1078,11 @@ struct EmptyState: View {
     }
 }
 
-private extension String {
+extension String {
     var normalizedDecimal: String { replacingOccurrences(of: ",", with: ".") }
 }
 
-private extension Double {
+extension Double {
     var clean: String {
         truncatingRemainder(dividingBy: 1) == 0 ? String(Int(self)) : String(format: "%.2f", self)
     }
