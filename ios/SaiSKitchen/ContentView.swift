@@ -880,9 +880,21 @@ struct OutstandingReportView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
     @State private var month = Date()
+    @State private var pdfFile: ExportFile?
     private let theme = AppTheme()
 
+    private var rows: [OutstandingRow] {
+        let start = AppFormatters.startOfMonth(for: month)
+        let end = AppFormatters.endOfMonth(for: month)
+        return store.customers.map { c in
+            OutstandingRow(name: c.name, phone: c.phone,
+                           tiffin: store.tiffins(customerId: c.id, start: start, end: end).reduce(0) { $0 + $1.total },
+                           catering: store.catering(customerId: c.id, start: start, end: end).reduce(0) { $0 + $1.total })
+        }.filter { $0.total > 0 }
+    }
+
     var body: some View {
+        let list = rows
         NavigationStack {
             ZStack {
                 theme.background(scheme).ignoresSafeArea()
@@ -891,11 +903,17 @@ struct OutstandingReportView: View {
                         DatePicker("Month", selection: $month, displayedComponents: .date)
                             .padding(16)
                             .appCardStyle(scheme)
-                        ForEach(store.customers) { customer in
-                            let total = totalFor(customer: customer)
-                            if total > 0 {
-                                EntryCard(title: customer.name, subtitle: customer.phone, total: AppFormatters.currency(total, code: store.settings.currency), color: theme.primary)
+                        ForEach(list, id: \.name) { row in
+                            EntryCard(title: row.name, subtitle: row.phone, total: AppFormatters.currency(row.total, code: store.settings.currency), color: theme.primary)
+                        }
+                        if list.isEmpty {
+                            Text("No entries for this month.").foregroundStyle(theme.secondaryText(scheme))
+                        } else {
+                            Button { makePDF(list) } label: {
+                                Label("Download / Share PDF", systemImage: "arrow.down.doc.fill").frame(maxWidth: .infinity)
                             }
+                            .buttonStyle(.borderedProminent)
+                            .tint(theme.primary)
                         }
                     }
                     .padding(20)
@@ -903,13 +921,15 @@ struct OutstandingReportView: View {
             }
             .navigationTitle("Outstanding Report")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .sheet(item: $pdfFile) { ShareSheet(url: $0.url) }
         }
     }
 
-    private func totalFor(customer: Customer) -> Double {
-        let start = AppFormatters.startOfMonth(for: month)
-        let end = AppFormatters.endOfMonth(for: month)
-        return store.tiffins(customerId: customer.id, start: start, end: end).reduce(0) { $0 + $1.total } + store.catering(customerId: customer.id, start: start, end: end).reduce(0) { $0 + $1.total }
+    private func makePDF(_ list: [OutstandingRow]) {
+        let label = month.formatted(.dateTime.month(.wide).year())
+        if let url = try? OutstandingPDF.make(monthLabel: label, rows: list, settings: store.settings) {
+            pdfFile = ExportFile(url: url)
+        }
     }
 }
 

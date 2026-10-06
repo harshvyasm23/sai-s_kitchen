@@ -92,11 +92,19 @@ fun OutstandingScreen(store: KitchenStore, onClose: () -> Unit) {
         }
         val s = Fmt.startOfMonth(month)
         val e = Fmt.endOfMonth(month)
-        var any = false
-        store.customers.forEach { c ->
-            val total = store.tiffins(c.id, s, e).sumOf { it.total } + store.catering(c.id, s, e).sumOf { it.total }
-            if (total > 0) { any = true; EntryCard(c.name, c.phone, Fmt.currency(total, cur), Brand.primary) }
+        val rows = store.customers.map { c ->
+            OutstandingRow(c.name, c.phone, store.tiffins(c.id, s, e).sumOf { it.total }, store.catering(c.id, s, e).sumOf { it.total })
+        }.filter { it.total > 0 }
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val label = "${month.month.name.lowercase().replaceFirstChar { it.uppercase() }} ${month.year}"
+        rows.forEach { r -> EntryCard(r.name, r.phone, Fmt.currency(r.total, cur), Brand.primary) }
+        if (rows.isEmpty()) Text("No entries for this month.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        else {
+            AppCard { SummaryRow("Total (${rows.size} customers)", Fmt.currency(rows.sumOf { it.total }, cur), isTotal = true) }
+            Button(modifier = Modifier.fillMaxWidth(), onClick = {
+                runCatching { ReportPdf.outstanding(context, label, rows, store.settings) }
+                    .onSuccess { ReportPdf.share(context, it) }
+            }) { Text("Download / Share PDF") }
         }
-        if (!any) Text("No entries for this month.", color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
