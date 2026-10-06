@@ -20,6 +20,13 @@ class KitchenStore(context: Context) {
 
     init { loadAll() }
 
+    companion object {
+        @Volatile private var inst: KitchenStore? = null
+        /** One shared store so the UI and the background Telegram check never disagree. */
+        fun get(context: Context): KitchenStore =
+            inst ?: synchronized(this) { inst ?: KitchenStore(context.applicationContext).also { inst = it } }
+    }
+
     private fun loadAll() {
         try {
             customers = JSONArray(prefs.getString(K_CUSTOMERS, "[]")).map { customerFrom(it) }

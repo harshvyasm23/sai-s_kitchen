@@ -66,6 +66,7 @@ fun SettingsScreen(store: KitchenStore, onOpen: (String) -> Unit) {
                 SettingField("Default delivery charge", s.defaultDeliveryCharge.toString(), decimal = true) { store.updateSettings(s.copy(defaultDeliveryCharge = it.dec())) }
             }
         }
+        TelegramCard(store)
         AppCard {
             Text("Data Management", fontWeight = FontWeight.Bold, fontSize = 17.sp)
             Spacer(Modifier.height(8.dp))

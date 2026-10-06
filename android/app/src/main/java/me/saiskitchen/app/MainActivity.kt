@@ -37,7 +37,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val store = KitchenStore(applicationContext)
+        val store = KitchenStore.get(applicationContext)
+        TelegramBot.schedule(applicationContext)
         val shared = sharedText(intent)
         setContent { SaiTheme(store.themeMode) { AppRoot(store, shared) } }
     }
@@ -64,6 +65,13 @@ fun AppRoot(store: KitchenStore, sharedText: String? = null) {
     var pasted by rememberSaveable { mutableStateOf(sharedText ?: "") }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     LaunchedEffect(Unit) { update = withContext(Dispatchers.IO) { Updater.check() } }
+    val appContext = LocalContext.current.applicationContext
+    LaunchedEffect(Unit) {
+        while (true) {
+            if (TelegramBot.isConfigured(appContext)) TelegramBot.poll(appContext, store)
+            kotlinx.coroutines.delay(15_000)
+        }
+    }
 
     if (overlay != null) {
         BackHandler { overlay = null }
