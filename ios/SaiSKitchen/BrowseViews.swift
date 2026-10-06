@@ -10,31 +10,49 @@ struct EntryRowsView: View {
     private let theme = AppTheme()
 
     var body: some View {
-        Group {
-            if tiffins.isEmpty && orders.isEmpty {
-                Text("No entries in this period.").foregroundStyle(theme.secondaryText(scheme))
-            }
-            ForEach(tiffins) { entry in
-                EntryCard(title: store.customerName(for: entry.customerId),
-                          subtitle: "\(AppFormatters.displayDate(entry.date)) • Noon \(entry.noonQty.clean), Evening \(entry.eveningQty.clean)",
-                          total: AppFormatters.currency(entry.total, code: store.settings.currency), color: theme.primary)
-                    .listRowSeparator(.hidden).listRowBackground(Color.clear)
-                    .contentShape(Rectangle())
-                    .onTapGesture { editingTiffin = entry }
-                    .swipeActions { Button(role: .destructive) { store.deleteTiffin(entry) } label: { Label("Delete", systemImage: "trash") } }
-            }
-            ForEach(orders) { order in
-                EntryCard(title: store.customerName(for: order.customerId),
-                          subtitle: "\(AppFormatters.displayDate(order.date)) • Catering • \(order.items.count) item(s)",
-                          total: AppFormatters.currency(order.total, code: store.settings.currency), color: theme.secondary)
-                    .listRowSeparator(.hidden).listRowBackground(Color.clear)
-                    .contentShape(Rectangle())
-                    .onTapGesture { editingOrder = order }
-                    .swipeActions { Button(role: .destructive) { store.deleteCateringOrder(order) } label: { Label("Delete", systemImage: "trash") } }
-            }
+        content
+            .sheet(item: $editingTiffin) { entry in EditTiffinView(entry: entry) }
+            .sheet(item: $editingOrder) { order in EditCateringView(order: order) }
+    }
+
+    @ViewBuilder private var content: some View {
+        if tiffins.isEmpty && orders.isEmpty {
+            Text("No entries in this period.").foregroundStyle(theme.secondaryText(scheme))
         }
-        .sheet(item: $editingTiffin) { EditTiffinView(entry: $0) }
-        .sheet(item: $editingOrder) { EditCateringView(order: $0) }
+        ForEach(tiffins) { entry in
+            tiffinRow(entry)
+        }
+        ForEach(orders) { order in
+            orderRow(order)
+        }
+    }
+
+    private func tiffinRow(_ entry: TiffinEntry) -> some View {
+        let name: String = store.customerName(for: entry.customerId)
+        let sub: String = AppFormatters.displayDate(entry.date) + " • Noon " + entry.noonQty.clean + ", Evening " + entry.eveningQty.clean
+        let total: String = AppFormatters.currency(entry.total, code: store.settings.currency)
+        return EntryCard(title: name, subtitle: sub, total: total, color: theme.primary)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .contentShape(Rectangle())
+            .onTapGesture { editingTiffin = entry }
+            .swipeActions {
+                Button(role: .destructive) { store.deleteTiffin(entry) } label: { Label("Delete", systemImage: "trash") }
+            }
+    }
+
+    private func orderRow(_ order: CateringOrder) -> some View {
+        let name: String = store.customerName(for: order.customerId)
+        let sub: String = AppFormatters.displayDate(order.date) + " • Catering • " + String(order.items.count) + " item(s)"
+        let total: String = AppFormatters.currency(order.total, code: store.settings.currency)
+        return EntryCard(title: name, subtitle: sub, total: total, color: theme.secondary)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .contentShape(Rectangle())
+            .onTapGesture { editingOrder = order }
+            .swipeActions {
+                Button(role: .destructive) { store.deleteCateringOrder(order) } label: { Label("Delete", systemImage: "trash") }
+            }
     }
 }
 
