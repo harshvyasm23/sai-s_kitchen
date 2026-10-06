@@ -30,6 +30,12 @@ struct ContentView: View {
         }
         .tint(theme.primary)
         .preferredColorScheme(preferredScheme)
+        .task {
+            while !Task.isCancelled {
+                if TelegramBot.isConfigured { _ = await TelegramBot.poll(store: store) }
+                try? await Task.sleep(for: .seconds(15))
+            }
+        }
     }
 }
 
@@ -971,6 +977,7 @@ struct SettingsView: View {
                             SettingsTextRow(label: "Currency", value: store.settings.currency)
                             SettingsTextRow(label: "Default Tiffin", value: AppFormatters.currency(store.settings.defaultTiffinPrice, code: store.settings.currency))
                         }
+                        TelegramSettingsCard()
                         SettingsSection(title: "Data Management", icon: "externaldrive.fill") {
                             Button { showImporter = true } label: { Label("Import Data", systemImage: "square.and.arrow.down") }
                             Menu {
