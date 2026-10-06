@@ -426,6 +426,7 @@ struct EntriesHomeView: View {
     @State private var showingTiffin = false
     @State private var showingCatering = false
     @State private var showingAll = false
+    @State private var showingWhatsApp = false
     private let theme = AppTheme()
 
     var body: some View {
@@ -434,6 +435,7 @@ struct EntriesHomeView: View {
                 theme.background(scheme).ignoresSafeArea()
                 ScrollView {
                     VStack(spacing: 16) {
+                        ActionCard(icon: "message.fill", title: "WhatsApp Message", subtitle: "Paste your daily WhatsApp list and add all entries at once", color: theme.success) { showingWhatsApp = true }
                         ActionCard(icon: "takeoutbag.and.cup.and.straw.fill", title: "Tiffin Entry", subtitle: "Record daily tiffin delivery with noon and evening quantities", color: theme.primary) { showingTiffin = true }
                         ActionCard(icon: "fork.knife.circle.fill", title: "Catering Order", subtitle: "Create party or catering orders with multiple items", color: theme.secondary) { showingCatering = true }
                         ActionCard(icon: "list.bullet.rectangle.fill", title: "View All Entries", subtitle: "Browse all tiffin and catering records", color: theme.info) { showingAll = true }
@@ -445,6 +447,7 @@ struct EntriesHomeView: View {
             .sheet(isPresented: $showingTiffin) { AddTiffinView() }
             .sheet(isPresented: $showingCatering) { AddCateringView() }
             .sheet(isPresented: $showingAll) { AllEntriesView() }
+            .sheet(isPresented: $showingWhatsApp) { WhatsAppEntryView() }
         }
     }
 }
