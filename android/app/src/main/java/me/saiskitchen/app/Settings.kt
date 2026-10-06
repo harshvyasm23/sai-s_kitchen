@@ -48,7 +48,7 @@ fun SettingsScreen(store: KitchenStore) {
         }
         AppCard {
             Text("App Info", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-            SummaryRow("Version", "1.0.0")
+            SummaryRow("Version", BuildConfig.VERSION_NAME)
             SummaryRow("Customers", "${store.customers.size}")
             SummaryRow("Tiffin Entries", "${store.tiffins.size}")
             SummaryRow("Catering Orders", "${store.cateringOrders.size}")
