@@ -5,7 +5,7 @@ enum NameStd {
     static let suffix = "Sai's Kitchen"
     static let maleWords: Set<String> = ["bhai", "bhaiya", "bhaiyya"]
     static let femaleWords: Set<String> = ["ben", "behen", "bhabhi", "lady", "ladies", "madam"]
-    static let noise: Set<String> = ["sai", "s", "sais", "tiffin", "tifin", "tiffen", "tiffins", "tifins", "kitchen", "service", "ji", "gents"].union(maleWords).union(femaleWords)
+    static let noise: Set<String> = Set(["sai", "s", "sais", "tiffin", "tifin", "tiffen", "tiffins", "tifins", "kitchen", "service", "ji", "gents"]).union(maleWords).union(femaleWords)
     static let placeFiller: Set<String> = ["iso", "at", "in", "railway", "station", "helsinki"]
     static let femaleNames: Set<String> = ["priti", "priya", "meena", "meenakshi", "pooja", "neha", "kavita", "anita", "sunita", "rekha", "divya", "jyoti",
         "sonal", "hetal", "nisha", "ritu", "aroona", "sneha", "shweta", "deepa", "dipti", "komal", "mina", "rina", "hema", "bhavna", "shilpa", "sapna"]
