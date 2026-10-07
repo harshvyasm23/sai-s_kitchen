@@ -203,6 +203,15 @@ fun GenerateInvoiceScreen(store: KitchenStore, onClose: () -> Unit) {
             }
         }
         if (customer != null) {
+            store.duplicateCustomerGroups().firstOrNull { g -> g.any { it.id == customer.id } }?.let { g ->
+                val twins = g.filter { it.id != customer.id }
+                val extra = twins.sumOf { store.tiffins(it.id, start, end).size + store.catering(it.id, start, end).size }
+                AppCard {
+                    Text("⚠ Same customer saved twice", fontWeight = FontWeight.Bold, color = Brand.primary)
+                    Text(twins.joinToString { it.name } + " has the same phone/name" + if (extra > 0) " and $extra entries in this period that are NOT on this bill." else ".")
+                    OutlinedButton(onClick = { store.mergeCustomers(customer, g); file = null }, modifier = Modifier.fillMaxWidth()) { Text("Merge them into ${customer.name}") }
+                }
+            }
             val t = store.tiffins(customer.id, start, end)
             val o = store.catering(customer.id, start, end)
             val summary = store.invoiceFor(customer, kind, start, end)

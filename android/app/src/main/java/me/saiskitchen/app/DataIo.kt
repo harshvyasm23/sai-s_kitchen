@@ -9,7 +9,7 @@ import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 
-data class ParsedData(val customers: List<Customer>, val tiffins: List<TiffinEntry>, val orders: List<CateringOrder>, val payments: List<Payment> = emptyList())
+data class ParsedData(val customers: List<Customer>, val tiffins: List<TiffinEntry>, val orders: List<CateringOrder>, val payments: List<Payment> = emptyList(), val notes: List<String> = emptyList())
 
 /**
  * Backup file format shared with the old Expo app and the iPhone app:
@@ -64,8 +64,14 @@ object DataIo {
                 isActive = o.optBoolean("active", o.optBoolean("isActive", true)),
             )
         }
+        val notes = mutableListOf<String>()
+        val nameOf = customers.associate { it.id to it.name }
         val tiffins = root.optJSONArray("tiffins").objects().mapNotNull { o ->
-            val id = o.optString("id"); val cid = o.optString("customerId"); val date = parseDate(o.optString("date"))
+            val id = o.optString("id"); val cid = o.optString("customerId")
+            val fixed = DateRepair.parse(o.optString("date"), ms(o.optString("createdAt")).takeIf { it > 0 })
+            val date = fixed?.date
+            if (fixed == null && id.isNotBlank()) notes.add("NOT imported (date unreadable \"${o.optString("date")}\"): ${nameOf[cid] ?: cid}")
+            else if (fixed?.note != null) notes.add("${nameOf[cid] ?: cid}: ${fixed.note}")
             if (id.isBlank() || cid.isBlank() || date == null) null else TiffinEntry(
                 id = id, date = date, customerId = cid, noonQty = o.optDouble("noonQty", 0.0), eveningQty = o.optDouble("eveningQty", 0.0),
                 unitPrice = o.optDouble("unitPrice", 0.0), deliveryCharge = o.optDouble("deliveryCharge", 0.0),
@@ -93,7 +99,7 @@ object DataIo {
             if (id.isBlank() || cid.isBlank() || date == null) null else
                 Payment(id = id, customerId = cid, date = date, amount = o.optDouble("amount", 0.0), note = o.optString("note"), createdAt = ms(o.optString("createdAt")))
         }
-        return ParsedData(customers, tiffins, orders, payments)
+        return ParsedData(customers, tiffins, orders, payments, notes)
     }
 
     private fun parseDate(s: String): LocalDate? = try { LocalDate.parse(s.take(10)) } catch (e: Exception) { null }

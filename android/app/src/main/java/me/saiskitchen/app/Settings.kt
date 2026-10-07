@@ -48,6 +48,13 @@ fun SettingsScreen(store: KitchenStore, onOpen: (String) -> Unit) {
             TextButton(onClick = { onOpen("all") }, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth()) { Text("View All Entries"); Text("Browse entries by date range", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
+            val issues = store.duplicateCustomerGroups().size + store.sameDayGroups().size
+            TextButton(onClick = { onOpen("datacheck") }, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) {
+                    Text("Data Check" + if (issues > 0) "  ⚠ $issues to review" else "  ✓")
+                    Text("Find duplicate customers and doubled entries", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             TextButton(onClick = { onOpen("outstanding") }, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth()) { Text("Outstanding Report"); Text("Check pending payments", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }

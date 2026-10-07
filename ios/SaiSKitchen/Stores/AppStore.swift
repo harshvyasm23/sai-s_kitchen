@@ -30,6 +30,13 @@ final class KitchenStore {
         themeMode = load(ThemeMode.self, key: themeKey) ?? .auto
     }
 
+    func persistAll() {
+        save(customers, key: customersKey)
+        save(tiffins, key: tiffinsKey)
+        save(cateringOrders, key: cateringKey)
+        save(payments, key: paymentsKey)
+    }
+
     func addPayment(_ payment: Payment) {
         payments.append(payment)
         payments.sort { $0.date < $1.date }
@@ -122,7 +129,7 @@ final class KitchenStore {
         if !newOrders.isEmpty { addCateringOrders(newOrders) }
         let found = parsed.customers.count + parsed.tiffins.count + parsed.orders.count + parsed.payments.count
         let added = newCustomers.count + newTiffins.count + newOrders.count + newPayments.count
-        return ImportSummary(customers: newCustomers.count, tiffins: newTiffins.count, orders: newOrders.count, payments: newPayments.count, skipped: found - added)
+        return ImportSummary(customers: newCustomers.count, tiffins: newTiffins.count, orders: newOrders.count, payments: newPayments.count, skipped: found - added, notes: parsed.notes)
     }
 
     func deleteCateringOrder(_ order: CateringOrder) {

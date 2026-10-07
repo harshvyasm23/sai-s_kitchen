@@ -70,6 +70,37 @@ class KitchenStore(context: Context) {
             )
         }.filter { it.tiffin + it.catering > 0 || it.previous > 0 || it.paid > 0 }.sortedBy { it.name.lowercase() }
 
+    // ---- data check: duplicate customers and doubled entries ----
+    private fun phoneKey(p: String): String { val d = p.filter { it.isDigit() }; return if (d.length >= 7) d.takeLast(8) else "" }
+
+    /** Groups of customer records that are probably the same person (same phone number or same name). */
+    fun duplicateCustomerGroups(): List<List<Customer>> {
+        val parent = HashMap<String, String>()
+        fun find(x: String): String { var r = x; while (parent[r] != null && parent[r] != r) r = parent[r]!!; return r }
+        fun union(a: String, b: String) { val ra = find(a); val rb = find(b); if (ra != rb) parent[ra] = rb }
+        customers.forEach { parent[it.id] = it.id }
+        val byKey = HashMap<String, String>()
+        customers.forEach { c ->
+            val keys = listOfNotNull(phoneKey(c.phone).takeIf { it.isNotEmpty() }?.let { "p$it" }, "n" + WhatsAppParser.norm(c.name).trim().replace(Regex("\\s+"), " "))
+            keys.forEach { k -> byKey[k]?.let { union(c.id, it) } ?: run { byKey[k] = c.id } }
+        }
+        return customers.groupBy { find(it.id) }.values.filter { it.size > 1 }.map { g -> g.sortedByDescending { c -> tiffins.count { it.customerId == c.id } } }
+    }
+
+    /** Moves every entry of [others] to [keep] and removes the extra customer records. */
+    fun mergeCustomers(keep: Customer, others: List<Customer>) {
+        val ids = others.map { it.id }.toSet() - keep.id
+        if (ids.isEmpty()) return
+        tiffins = tiffins.map { if (it.customerId in ids) it.copy(customerId = keep.id, updatedAt = System.currentTimeMillis()) else it }; saveTiffins()
+        cateringOrders = cateringOrders.map { if (it.customerId in ids) it.copy(customerId = keep.id, updatedAt = System.currentTimeMillis()) else it }; saveCatering()
+        payments = payments.map { if (it.customerId in ids) it.copy(customerId = keep.id) else it }; savePayments()
+        customers = customers.filter { it.id !in ids }; saveCustomers()
+    }
+
+    /** Same customer with more than one tiffin entry on the same day (possible double billing). */
+    fun sameDayGroups(): List<List<TiffinEntry>> =
+        tiffins.groupBy { it.customerId to it.date }.values.filter { it.size > 1 }.sortedByDescending { it[0].date }
+
     fun addCustomer(c: Customer) { customers = customers + c; saveCustomers() }
     fun updateCustomer(c: Customer) {
         customers = customers.map { if (it.id == c.id) c.copy(updatedAt = System.currentTimeMillis()) else it }; saveCustomers()
@@ -113,7 +144,7 @@ class KitchenStore(context: Context) {
         val newP = parsed.payments.filter { it.id !in haveP }
         if (newP.isNotEmpty()) addPayments(newP)
         val found = parsed.customers.size + parsed.tiffins.size + parsed.orders.size + parsed.payments.size
-        return ImportResult(newC.size, newT.size, newO.size, found - newC.size - newT.size - newO.size - newP.size, newP.size)
+        return ImportResult(newC.size, newT.size, newO.size, found - newC.size - newT.size - newO.size - newP.size, newP.size, parsed.notes)
     }
 
     fun clearAllData() {
@@ -245,7 +276,7 @@ private fun settingsFrom(o: JSONObject): AppSettings {
     )
 }
 
-data class ImportResult(val customers: Int, val tiffins: Int, val orders: Int, val skipped: Int, val payments: Int = 0) {
+data class ImportResult(val customers: Int, val tiffins: Int, val orders: Int, val skipped: Int, val payments: Int = 0, val notes: List<String> = emptyList()) {
     val total get() = customers + tiffins + orders + payments
     fun message(): String = if (total == 0) {
         if (skipped > 0) "Nothing new: all $skipped records are already in the app." else "No records found in that file."
@@ -256,5 +287,6 @@ data class ImportResult(val customers: Int, val tiffins: Int, val orders: Int, v
         if (orders > 0) append("• $orders catering orders\n")
         if (payments > 0) append("• $payments payments\n")
         if (skipped > 0) append("($skipped already existed and were skipped)")
+        if (notes.isNotEmpty()) append("\n\nCheck these dates:\n" + notes.take(12).joinToString("\n") { "• $it" } + if (notes.size > 12) "\n…and ${notes.size - 12} more" else "")
     }
 }

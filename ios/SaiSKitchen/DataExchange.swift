@@ -11,6 +11,7 @@ struct ImportSummary {
     var orders = 0
     var payments = 0
     var skipped = 0
+    var notes: [String] = []
 
     var total: Int { customers + tiffins + orders + payments }
 
@@ -24,6 +25,7 @@ struct ImportSummary {
         if orders > 0 { text += "• \(orders) catering orders\n" }
         if payments > 0 { text += "• \(payments) payments\n" }
         if skipped > 0 { text += "(\(skipped) already existed and were skipped)" }
+        if !notes.isEmpty { text += "\n\nCheck these dates:\n" + notes.prefix(12).map { "• \($0)" }.joined(separator: "\n") + (notes.count > 12 ? "\n…and \(notes.count - 12) more" : "") }
         return text
     }
 }
@@ -33,6 +35,7 @@ struct ParsedBackup {
     var tiffins: [TiffinEntry]
     var orders: [CateringOrder]
     var payments: [Payment] = []
+    var notes: [String] = []
 }
 
 enum ExchangeError: LocalizedError {
@@ -121,12 +124,20 @@ enum DataExchange {
                             type: type, createdAt: parseTimestamp(o["createdAt"]), updatedAt: parseTimestamp(o["updatedAt"]), isActive: active)
         }
 
+        var notes: [String] = []
+        let nameOf = Dictionary(customers.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
         let tiffins: [TiffinEntry] = objects("tiffins").compactMap { o in
-            guard let id = o["id"] as? String, let customerId = o["customerId"] as? String,
-                  !id.isEmpty, !customerId.isEmpty, let date = parseDay(o["date"]) else { return nil }
-            let notes = (o["notes"] as? String) ?? (o["comment"] as? String) ?? ""
+            guard let id = o["id"] as? String, let customerId = o["customerId"] as? String, !id.isEmpty, !customerId.isEmpty else { return nil }
+            let rawDate = (o["date"] as? String) ?? ""
+            guard let fixed = DateRepair.parse(rawDate, createdAt: parseTimestamp(o["createdAt"])) else {
+                notes.append("NOT imported (date unreadable \"\(rawDate)\"): \(nameOf[customerId] ?? customerId)")
+                return nil
+            }
+            if let n = fixed.note { notes.append("\(nameOf[customerId] ?? customerId): \(n)") }
+            let date = fixed.date
+            let notesText = (o["notes"] as? String) ?? (o["comment"] as? String) ?? ""
             return TiffinEntry(id: id, date: date, customerId: customerId, noonQty: number(o["noonQty"]), eveningQty: number(o["eveningQty"]),
-                               unitPrice: number(o["unitPrice"]), deliveryCharge: number(o["deliveryCharge"]), notes: notes,
+                               unitPrice: number(o["unitPrice"]), deliveryCharge: number(o["deliveryCharge"]), notes: notesText,
                                createdAt: parseTimestamp(o["createdAt"]), updatedAt: parseTimestamp(o["updatedAt"]))
         }
 
@@ -150,7 +161,7 @@ enum DataExchange {
             return Payment(id: id, customerId: customerId, date: date, amount: number(o["amount"]),
                            note: (o["note"] as? String) ?? "", createdAt: parseTimestamp(o["createdAt"]))
         }
-        return ParsedBackup(customers: customers, tiffins: tiffins, orders: orders, payments: payments)
+        return ParsedBackup(customers: customers, tiffins: tiffins, orders: orders, payments: payments, notes: notes)
     }
 }
 

@@ -811,6 +811,14 @@ struct GenerateInvoiceView: View {
                     DatePicker("Start", selection: $startDate, displayedComponents: .date)
                     DatePicker("End", selection: $endDate, displayedComponents: .date)
                 }
+                if let selectedCustomer, let g = store.duplicateCustomerGroups().first(where: { $0.contains { $0.id == selectedCustomer.id } }) {
+                    Section("\u{26A0} Same customer saved twice") {
+                        let twins = g.filter { $0.id != selectedCustomer.id }
+                        let extra = twins.reduce(0) { $0 + store.tiffins(customerId: $1.id, start: startDate, end: endDate).count + store.catering(customerId: $1.id, start: startDate, end: endDate).count }
+                        Text(twins.map(\.name).joined(separator: ", ") + " has the same phone/name" + (extra > 0 ? " and \(extra) entries in this period that are NOT on this bill." : "."))
+                        Button("Merge them into \(selectedCustomer.name)") { store.mergeCustomers(keep: selectedCustomer, others: g); generatedURL = nil }
+                    }
+                }
                 if let selectedCustomer {
                     Section("Invoice Preview") {
                         Text(selectedCustomer.name).font(.headline)
@@ -894,6 +902,7 @@ struct SettingsView: View {
     @State private var showMonthly = false
     @State private var showAll = false
     @State private var showOutstanding = false
+    @State private var showDataCheck = false
     @State private var showImporter = false
     @State private var exportFile: ExportFile?
     @State private var message: String?
@@ -918,6 +927,10 @@ struct SettingsView: View {
                             Button { showMonthly = true } label: { Label("Monthly Entries", systemImage: "calendar") }
                             Button { showAll = true } label: { Label("View All Entries", systemImage: "list.bullet.rectangle") }
                             Button { showOutstanding = true } label: { Label("Outstanding Report", systemImage: "exclamationmark.circle") }
+                            Button { showDataCheck = true } label: {
+                                let n = store.duplicateCustomerGroups().count + store.sameDayGroups().count
+                                Label("Data Check" + (n > 0 ? "  \u{26A0} \(n) to review" : "  \u{2713}"), systemImage: "checkmark.shield")
+                            }
                         }
                         SettingsSection(title: "Business Defaults", icon: "doc.text.fill") {
                             SettingsTextRow(label: "Company", value: store.settings.companyName)
