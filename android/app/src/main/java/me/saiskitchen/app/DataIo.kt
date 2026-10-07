@@ -9,7 +9,7 @@ import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 
-data class ParsedData(val customers: List<Customer>, val tiffins: List<TiffinEntry>, val orders: List<CateringOrder>)
+data class ParsedData(val customers: List<Customer>, val tiffins: List<TiffinEntry>, val orders: List<CateringOrder>, val payments: List<Payment> = emptyList())
 
 /**
  * Backup file format shared with the old Expo app and the iPhone app:
@@ -45,6 +45,10 @@ object DataIo {
         if (kind == "customers" || kind == "all") o.put("customers", JSONArray(store.customers.map { customerJson(it) }))
         if (kind == "tiffins" || kind == "all") o.put("tiffins", JSONArray(store.tiffins.map { tiffinJson(it) }))
         if (kind == "catering" || kind == "all") o.put("catering", JSONArray(store.cateringOrders.map { orderJson(it) }))
+        if (kind == "payments" || kind == "all") o.put("payments", JSONArray(store.payments.map {
+            JSONObject().put("id", it.id).put("customerId", it.customerId).put("date", it.date.toString())
+                .put("amount", it.amount).put("note", it.note).put("createdAt", iso(it.createdAt))
+        }))
         o.put("exportDate", Instant.now().toString())
         return o.toString(2)
     }
@@ -84,7 +88,12 @@ object DataIo {
                 createdAt = ms(o.optString("createdAt")), updatedAt = ms(o.optString("updatedAt")),
             )
         }
-        return ParsedData(customers, tiffins, orders)
+        val payments = root.optJSONArray("payments").objects().mapNotNull { o ->
+            val id = o.optString("id"); val cid = o.optString("customerId"); val date = parseDate(o.optString("date"))
+            if (id.isBlank() || cid.isBlank() || date == null) null else
+                Payment(id = id, customerId = cid, date = date, amount = o.optDouble("amount", 0.0), note = o.optString("note"), createdAt = ms(o.optString("createdAt")))
+        }
+        return ParsedData(customers, tiffins, orders, payments)
     }
 
     private fun parseDate(s: String): LocalDate? = try { LocalDate.parse(s.take(10)) } catch (e: Exception) { null }

@@ -15,6 +15,7 @@ class KitchenStore(context: Context) {
     var customers by mutableStateOf(listOf<Customer>()); private set
     var tiffins by mutableStateOf(listOf<TiffinEntry>()); private set
     var cateringOrders by mutableStateOf(listOf<CateringOrder>()); private set
+    var payments by mutableStateOf(listOf<Payment>()); private set
     var settings by mutableStateOf(AppSettings()); private set
     var themeMode by mutableStateOf(ThemeMode.Auto); private set
 
@@ -23,6 +24,7 @@ class KitchenStore(context: Context) {
     private fun loadAll() {
         try {
             customers = JSONArray(prefs.getString(K_CUSTOMERS, "[]")).map { customerFrom(it) }
+            payments = JSONArray(prefs.getString(K_PAYMENTS, "[]")).map { paymentFrom(it) }
             tiffins = JSONArray(prefs.getString(K_TIFFINS, "[]")).map { tiffinFrom(it) }
             cateringOrders = JSONArray(prefs.getString(K_CATERING, "[]")).map { orderFrom(it) }
             prefs.getString(K_SETTINGS, null)?.let { settings = settingsFrom(JSONObject(it)) }
@@ -33,8 +35,36 @@ class KitchenStore(context: Context) {
     }
 
     private fun saveCustomers() = prefs.edit().putString(K_CUSTOMERS, JSONArray(customers.map { it.toJson() }).toString()).apply()
+    private fun savePayments() = prefs.edit().putString(K_PAYMENTS, JSONArray(payments.map { it.toJson() }).toString()).apply()
     private fun saveTiffins() = prefs.edit().putString(K_TIFFINS, JSONArray(tiffins.map { it.toJson() }).toString()).apply()
     private fun saveCatering() = prefs.edit().putString(K_CATERING, JSONArray(cateringOrders.map { it.toJson() }).toString()).apply()
+
+    fun addPayment(p: Payment) { payments = (payments + p).sortedBy { it.date }; savePayments() }
+    fun addPayments(list: List<Payment>) { payments = (payments + list).sortedBy { it.date }; savePayments() }
+    fun deletePayment(p: Payment) { payments = payments.filter { it.id != p.id }; savePayments() }
+
+    // ---- ledger: what each customer was billed, paid and still owes ----
+    fun billed(customerId: String, start: LocalDate?, end: LocalDate): Double =
+        tiffins.filter { it.customerId == customerId && (start == null || !it.date.isBefore(start)) && !it.date.isAfter(end) }.sumOf { it.total } +
+            cateringOrders.filter { it.customerId == customerId && (start == null || !it.date.isBefore(start)) && !it.date.isAfter(end) }.sumOf { it.total }
+
+    fun paid(customerId: String, start: LocalDate?, end: LocalDate): Double =
+        payments.filter { it.customerId == customerId && (start == null || !it.date.isBefore(start)) && !it.date.isAfter(end) }.sumOf { it.amount }
+
+    /** Unpaid amount carried in from before [date] (negative = customer has credit). */
+    fun balanceBefore(customerId: String, date: LocalDate): Double =
+        (billed(customerId, null, date.minusDays(1)) - paid(customerId, null, date.minusDays(1))).cents()
+
+    /** One row per customer who was billed in the period or still owes money, as of the end of the period. */
+    fun outstandingRows(start: LocalDate, end: LocalDate): List<OutstandingRow> =
+        customers.map { c ->
+            OutstandingRow(
+                customerId = c.id, name = c.name, phone = c.phone,
+                tiffin = tiffins(c.id, start, end).sumOf { it.total }.cents(),
+                catering = catering(c.id, start, end).sumOf { it.total }.cents(),
+                previous = balanceBefore(c.id, start), paid = paid(c.id, start, end).cents(),
+            )
+        }.filter { it.tiffin + it.catering > 0 || Math.abs(it.balance) > 0.004 }.sortedBy { it.name.lowercase() }
 
     fun addCustomer(c: Customer) { customers = customers + c; saveCustomers() }
     fun updateCustomer(c: Customer) {
@@ -75,13 +105,16 @@ class KitchenStore(context: Context) {
         if (newC.isNotEmpty()) { customers = customers + newC; saveCustomers() }
         if (newT.isNotEmpty()) addTiffins(newT)
         if (newO.isNotEmpty()) addCateringOrders(newO)
-        val found = parsed.customers.size + parsed.tiffins.size + parsed.orders.size
-        return ImportResult(newC.size, newT.size, newO.size, found - newC.size - newT.size - newO.size)
+        val haveP = payments.map { it.id }.toSet()
+        val newP = parsed.payments.filter { it.id !in haveP }
+        if (newP.isNotEmpty()) addPayments(newP)
+        val found = parsed.customers.size + parsed.tiffins.size + parsed.orders.size + parsed.payments.size
+        return ImportResult(newC.size, newT.size, newO.size, found - newC.size - newT.size - newO.size - newP.size, newP.size)
     }
 
     fun clearAllData() {
-        customers = emptyList(); tiffins = emptyList(); cateringOrders = emptyList()
-        saveCustomers(); saveTiffins(); saveCatering()
+        customers = emptyList(); tiffins = emptyList(); cateringOrders = emptyList(); payments = emptyList()
+        saveCustomers(); saveTiffins(); saveCatering(); savePayments()
     }
 
     fun seedSampleData() {
@@ -143,6 +176,7 @@ class KitchenStore(context: Context) {
             inst ?: synchronized(this) { inst ?: KitchenStore(context.applicationContext).also { inst = it } }
         private const val K_CUSTOMERS = "customers"
         private const val K_TIFFINS = "tiffins"
+        private const val K_PAYMENTS = "payments"
         private const val K_CATERING = "catering"
         private const val K_SETTINGS = "settings"
         private const val K_THEME = "theme"
@@ -158,6 +192,14 @@ private fun customerFrom(o: JSONObject) = Customer(
     id = o.getString("id"), name = o.getString("name"), phone = o.optString("phone"), address = o.optString("address"),
     type = o.optString("type", "Regular"), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"),
     isActive = o.optBoolean("isActive", true),
+)
+
+private fun Payment.toJson() = JSONObject().put("id", id).put("customerId", customerId).put("date", date.toString())
+    .put("amount", amount).put("note", note).put("createdAt", createdAt)
+
+private fun paymentFrom(o: JSONObject) = Payment(
+    id = o.getString("id"), customerId = o.getString("customerId"), date = LocalDate.parse(o.getString("date")),
+    amount = o.optDouble("amount"), note = o.optString("note"), createdAt = o.optLong("createdAt"),
 )
 
 private fun TiffinEntry.toJson() = JSONObject().put("id", id).put("date", date.toString()).put("customerId", customerId)
@@ -199,8 +241,8 @@ private fun settingsFrom(o: JSONObject): AppSettings {
     )
 }
 
-data class ImportResult(val customers: Int, val tiffins: Int, val orders: Int, val skipped: Int) {
-    val total get() = customers + tiffins + orders
+data class ImportResult(val customers: Int, val tiffins: Int, val orders: Int, val skipped: Int, val payments: Int = 0) {
+    val total get() = customers + tiffins + orders + payments
     fun message(): String = if (total == 0) {
         if (skipped > 0) "Nothing new: all $skipped records are already in the app." else "No records found in that file."
     } else buildString {
@@ -208,6 +250,7 @@ data class ImportResult(val customers: Int, val tiffins: Int, val orders: Int, v
         if (customers > 0) append("• $customers customers\n")
         if (tiffins > 0) append("• $tiffins tiffin entries\n")
         if (orders > 0) append("• $orders catering orders\n")
+        if (payments > 0) append("• $payments payments\n")
         if (skipped > 0) append("($skipped already existed and were skipped)")
     }
 }

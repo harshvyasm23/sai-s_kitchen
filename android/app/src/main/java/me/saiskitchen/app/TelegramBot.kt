@@ -72,7 +72,7 @@ object TelegramBot {
         runCatching { api(token, "sendMessage", JSONObject().put("chat_id", chat).put("text", text)) }
     }
 
-    private const val HELP = "Send your daily list like this:\n\nDate - 06.10.26\ndaily tiffins\n1. Pranav 1 tiffin at pasila\n2. Meena 2 tiffins at Iso Omena\n\nAlacarte\n1. Neha - 2 kg poha 12 euro, roti 20 pcs 0.5 each at Pasila\n\nCatering\n1. Rohit - chole chana 10 euro\n\nCommands: /undo removes the last message's entries, /help shows this."
+    private const val HELP = "Send your daily list like this:\n\nDate - 06.10.26\ndaily tiffins\n1. Pranav 1 tiffin at pasila\n2. Meena 2 tiffins at Iso Omena\n\nAlacarte\n1. Neha - 2 kg poha 12 euro, roti 20 pcs 0.5 each at Pasila\n\nCatering\n1. Rohit - chole chana 10 euro\n\nCommands: /undo removes the last message's entries, /paid Name 40 records a payment, /outstanding shows who owes, /help shows this."
 
     /** Fetch new messages, save them, reply. Returns a short status for the settings screen. */
     suspend fun poll(context: Context, store: KitchenStore): String {
@@ -125,6 +125,25 @@ object TelegramBot {
             val b = Batch.fromJson(p.getString("batch_$chat", null)) ?: return "Nothing to undo."
             p.edit().remove("batch_$chat").apply()
             return EntryWriter.undo(store, b)
+        }
+        if (t.startsWith("/outstanding")) {
+            val rows = store.outstandingRows(Fmt.startOfMonth(LocalDate.now().minusYears(5)), LocalDate.now()).filter { it.balance > 0.004 }
+            if (rows.isEmpty()) return "Nobody owes anything 🎉"
+            return "Outstanding: " + Fmt.currency(rows.sumOf { it.balance }, store.settings.currency) + "\n" +
+                rows.sortedByDescending { it.balance }.joinToString("\n") { "${it.name}: ${Fmt.currency(it.balance, store.settings.currency)}" }
+        }
+        if (t.startsWith("/paid")) {
+            val m = Regex("""^/paid\s+(.+?)\s+([0-9]+(?:[.,][0-9]+)?)\s*(?:€|eur|euro)?\s*$""", RegexOption.IGNORE_CASE).find(t)
+                ?: return "Use: /paid <name> <amount>   e.g. /paid Aroona 40"
+            val q = m.groupValues[1].trim(); val amt = m.groupValues[2].replace(',', '.').toDouble()
+            val hits = store.customers.filter { it.name.equals(q, true) }.ifEmpty {
+                store.customers.filter { it.name.contains(q, true) || it.name.split(" ").first().equals(q, true) } }
+            if (hits.isEmpty()) return "No customer matches \"$q\"."
+            if (hits.size > 1) return "More than one match: " + hits.joinToString { it.name } + ". Type the full name."
+            val c = hits[0]
+            store.addPayment(Payment(customerId = c.id, amount = amt, note = "Telegram"))
+            val bal = store.balanceBefore(c.id, LocalDate.now().plusDays(1))
+            return "Recorded ${Fmt.currency(amt, store.settings.currency)} from ${c.name} ✅\nStill owes: ${Fmt.currency(maxOf(bal, 0.0), store.settings.currency)}"
         }
         val today = LocalDate.now()
         val dayFirst = WhatsAppParser.parse(t, false, store.settings.defaultTiffinPrice)

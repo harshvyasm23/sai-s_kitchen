@@ -84,6 +84,7 @@ fun AppRoot(store: KitchenStore, sharedText: String? = null) {
             "monthly" -> MonthlyEntriesScreen(store, close)
             "invoice" -> GenerateInvoiceScreen(store, close)
             "outstanding" -> OutstandingScreen(store, close)
+            "bulk" -> BulkInvoicesScreen(store, close)
         }
         return
     }

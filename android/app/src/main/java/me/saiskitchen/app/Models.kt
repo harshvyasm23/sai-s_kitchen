@@ -59,6 +59,16 @@ data class CateringOrder(
     val total: Double get() = (itemsTotal + deliveryCharge).cents()
 }
 
+/** Money received from a customer. Outstanding = billed - payments. */
+data class Payment(
+    val id: String = newId(),
+    val customerId: String,
+    val date: LocalDate = LocalDate.now(),
+    val amount: Double,
+    val note: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
 data class AppSettings(
     val currency: String = "EUR",
     val defaultTiffinPrice: Double = 8.0,

@@ -77,43 +77,121 @@ fun ReportsScreen(store: KitchenStore) {
     }
 }
 
+/** Turns a typed phone number into digits for wa.me (Finnish numbers starting with 0 become 358...). */
+fun waNumber(phone: String): String {
+    var d = phone.filter { it.isDigit() || it == '+' }
+    if (d.startsWith("+")) return d.drop(1).filter { it.isDigit() }
+    d = d.filter { it.isDigit() }
+    return when {
+        d.startsWith("00") -> d.drop(2)
+        d.startsWith("0") -> "358" + d.drop(1)
+        else -> d
+    }
+}
+
+fun openWhatsApp(context: android.content.Context, phone: String, text: String) {
+    val num = waNumber(phone)
+    val uri = android.net.Uri.parse("https://wa.me/" + (if (num.isNotBlank()) num else "") + "?text=" + android.net.Uri.encode(text))
+    runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+}
+
+fun reminderText(r: OutstandingRow, label: String, cur: String): String =
+    "Hello ${r.name.trim().split(" ").first()}, this is Sai's Kitchen. Your balance for $label is ${Fmt.currency(r.balance, cur)}. " +
+        "Please pay by bank transfer: IBAN ${PaymentDetails.IBAN}, BIC ${PaymentDetails.BIC}. Thank you! 🙏"
+
 @Composable
 fun OutstandingScreen(store: KitchenStore, onClose: () -> Unit) {
     var month by remember { mutableStateOf(LocalDate.now()) }
+    var payFor by remember { mutableStateOf<OutstandingRow?>(null) }
+    var showOnlyDue by remember { mutableStateOf(true) }
     val cur = store.settings.currency
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val label = "${month.month.name.lowercase().replaceFirstChar { it.uppercase() }} ${month.year}"
+    val s = Fmt.startOfMonth(month)
+    val e = Fmt.endOfMonth(month)
+    val all = store.outstandingRows(s, e)
+    val rows = if (showOnlyDue) all.filter { it.balance > 0.004 } else all
     OverlayScaffold("Outstanding Report", onClose) {
         AppCard {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = { month = month.minusMonths(1) }) { Text("‹ Prev") }
-                Text("${month.month.name.lowercase().replaceFirstChar { it.uppercase() }} ${month.year}", fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 12.dp))
+                Text(label, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
                 TextButton(onClick = { month = month.plusMonths(1) }) { Text("Next ›") }
             }
         }
-        val s = Fmt.startOfMonth(month)
-        val e = Fmt.endOfMonth(month)
-        val rows = store.customers.map { c ->
-            OutstandingRow(c.name, c.phone, store.tiffins(c.id, s, e).sumOf { it.total }, store.catering(c.id, s, e).sumOf { it.total })
-        }.filter { it.total > 0 }
-        val context = androidx.compose.ui.platform.LocalContext.current
-        val label = "${month.month.name.lowercase().replaceFirstChar { it.uppercase() }} ${month.year}"
-        rows.forEach { r -> EntryCard(r.name, r.phone, Fmt.currency(r.total, cur), Brand.primary) }
-        if (rows.isEmpty()) Text("No entries for this month.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        AppCard {
+            Text("Total Outstanding Amount", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(Fmt.currency(all.sumOf { maxOf(it.balance, 0.0) }, cur), fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Brand.primary)
+            Text("${all.count { it.balance > 0.004 }} customers still owe  •  billed ${Fmt.currency(all.sumOf { it.billed }, cur)}  •  received ${Fmt.currency(all.sumOf { it.paid }, cur)}",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Switch(checked = showOnlyDue, onCheckedChange = { showOnlyDue = it })
+            Spacer(Modifier.width(8.dp)); Text("Show only customers who owe")
+        }
+        rows.forEach { r ->
+            AppCard {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(Modifier.weight(1f)) {
+                        Text(r.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("Billed ${Fmt.currency(r.billed, cur)}" + (if (r.previous > 0.004) " + earlier ${Fmt.currency(r.previous, cur)}" else "") +
+                            (if (r.paid > 0) " − paid ${Fmt.currency(r.paid, cur)}" else ""), fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(if (r.balance <= 0.004) "PAID" else Fmt.currency(r.balance, cur), fontWeight = FontWeight.Bold, fontSize = 17.sp,
+                        color = if (r.balance <= 0.004) Brand.secondary else Brand.primary)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { payFor = r }) { Text("Record payment") }
+                    if (r.balance > 0.004) OutlinedButton(onClick = { openWhatsApp(context, r.phone, reminderText(r, label, cur)) }) { Text("WhatsApp reminder") }
+                }
+            }
+        }
+        if (all.isEmpty()) Text("No entries for this month.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         else {
-            AppCard { SummaryRow("Total (${rows.size} customers)", Fmt.currency(rows.sumOf { it.total }, cur), isTotal = true) }
             var saved by remember { mutableStateOf<String?>(null) }
             Button(modifier = Modifier.fillMaxWidth(), onClick = {
-                runCatching { ReportPdf.outstanding(context, label, rows, store.settings) }
+                runCatching { ReportPdf.outstanding(context, label, all, store.settings) }
                     .onSuccess { f ->
                         saved = if (InvoicePdf.saveToDownloads(context, f)) "Saved to your Downloads folder:\n${f.name}" else "Could not save to Downloads. Use Share."
                     }
             }) { Text("Download PDF") }
             OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
-                runCatching { ReportPdf.outstanding(context, label, rows, store.settings) }.onSuccess { ReportPdf.share(context, it) }
+                runCatching { ReportPdf.outstanding(context, label, all, store.settings) }.onSuccess { ReportPdf.share(context, it) }
             }) { Text("Share PDF") }
             saved?.let { m ->
                 AlertDialog(onDismissRequest = { saved = null }, confirmButton = { TextButton(onClick = { saved = null }) { Text("OK") } }, text = { Text(m) })
             }
         }
+    }
+    payFor?.let { r ->
+        var amount by remember(r.customerId) { mutableStateOf(if (r.balance > 0) "%.2f".format(java.util.Locale.US, r.balance) else "") }
+        var note by remember(r.customerId) { mutableStateOf("") }
+        val recent = store.payments.filter { it.customerId == r.customerId }.takeLast(3)
+        AlertDialog(
+            onDismissRequest = { payFor = null },
+            title = { Text("Payment from ${r.name}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Balance now: ${Fmt.currency(r.balance, cur)}")
+                    NumberField("Amount received", amount, { amount = it })
+                    OutlinedTextField(note, { note = it }, label = { Text("Note (bank / cash)") }, singleLine = true)
+                    recent.forEach { p ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("${Fmt.displayDate(p.date)}  ${Fmt.currency(p.amount, cur)}", fontSize = 12.sp)
+                            TextButton(onClick = { store.deletePayment(p); payFor = null }) { Text("Delete") }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val a = amount.replace(',', '.').toDoubleOrNull()
+                    if (a != null && a > 0) store.addPayment(Payment(customerId = r.customerId, date = minOf(LocalDate.now(), e), amount = a, note = note.trim()))
+                    payFor = null
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { payFor = null }) { Text("Cancel") } },
+        )
     }
 }
