@@ -788,6 +788,7 @@ struct GenerateInvoiceView: View {
     @State private var startDate = AppFormatters.startOfMonth()
     @State private var endDate = Date()
     @State private var generatedURL: URL?
+    @State private var savePDF: ExportFile?
     @State private var alertText: String?
     private let theme = AppTheme()
 
@@ -824,11 +825,13 @@ struct GenerateInvoiceView: View {
                     Section {
                         Button { generate(customer: selectedCustomer) } label: { Label("Generate PDF Invoice", systemImage: "square.and.arrow.down") }
                         if let generatedURL {
+                            Button { savePDF = ExportFile(url: generatedURL) } label: { Label("Download PDF (Save to Files)", systemImage: "arrow.down.doc.fill") }
                             ShareLink(item: generatedURL) { Label("Share Invoice", systemImage: "square.and.arrow.up") }
                         }
                     }
                 }
             }
+            .sheet(item: $savePDF) { FileSaver(url: $0.url) }
             .navigationTitle("Generate Invoice")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .alert("Invoice", isPresented: Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })) { Button("OK", role: .cancel) {} } message: { Text(alertText ?? "") }
@@ -852,7 +855,7 @@ struct GenerateInvoiceView: View {
         }
         do {
             generatedURL = try InvoicePDFGenerator.makePDF(summary: InvoiceSummary(customer: customer, kind: kind, startDate: startDate, endDate: endDate, tiffins: tiffins, cateringOrders: orders, settings: store.settings))
-            alertText = "Invoice PDF generated successfully. Tap Share Invoice to send or save it."
+            alertText = "Invoice PDF created. Tap Download PDF to save it in Files, or Share Invoice to send it."
         } catch {
             alertText = "Failed to generate invoice. Please try again."
         }
@@ -887,6 +890,7 @@ struct OutstandingReportView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var month = Date()
     @State private var pdfFile: ExportFile?
+    @State private var savePDF: ExportFile?
     private let theme = AppTheme()
 
     private var rows: [OutstandingRow] {
@@ -915,10 +919,15 @@ struct OutstandingReportView: View {
                         if list.isEmpty {
                             Text("No entries for this month.").foregroundStyle(theme.secondaryText(scheme))
                         } else {
-                            Button { makePDF(list) } label: {
-                                Label("Download / Share PDF", systemImage: "arrow.down.doc.fill").frame(maxWidth: .infinity)
+                            Button { makePDF(list, save: true) } label: {
+                                Label("Download PDF (Save to Files)", systemImage: "arrow.down.doc.fill").frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.borderedProminent)
+                            .tint(theme.primary)
+                            Button { makePDF(list, save: false) } label: {
+                                Label("Share PDF", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
                             .tint(theme.primary)
                         }
                     }
@@ -928,13 +937,14 @@ struct OutstandingReportView: View {
             .navigationTitle("Outstanding Report")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .sheet(item: $pdfFile) { ShareSheet(url: $0.url) }
+            .sheet(item: $savePDF) { FileSaver(url: $0.url) }
         }
     }
 
-    private func makePDF(_ list: [OutstandingRow]) {
+    private func makePDF(_ list: [OutstandingRow], save: Bool) {
         let label = month.formatted(.dateTime.month(.wide).year())
         if let url = try? OutstandingPDF.make(monthLabel: label, rows: list, settings: store.settings) {
-            pdfFile = ExportFile(url: url)
+            if save { savePDF = ExportFile(url: url) } else { pdfFile = ExportFile(url: url) }
         }
     }
 }

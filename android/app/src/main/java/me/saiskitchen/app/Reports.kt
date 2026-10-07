@@ -101,10 +101,19 @@ fun OutstandingScreen(store: KitchenStore, onClose: () -> Unit) {
         if (rows.isEmpty()) Text("No entries for this month.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         else {
             AppCard { SummaryRow("Total (${rows.size} customers)", Fmt.currency(rows.sumOf { it.total }, cur), isTotal = true) }
+            var saved by remember { mutableStateOf<String?>(null) }
             Button(modifier = Modifier.fillMaxWidth(), onClick = {
                 runCatching { ReportPdf.outstanding(context, label, rows, store.settings) }
-                    .onSuccess { ReportPdf.share(context, it) }
-            }) { Text("Download / Share PDF") }
+                    .onSuccess { f ->
+                        saved = if (InvoicePdf.saveToDownloads(context, f)) "Saved to your Downloads folder:\n${f.name}" else "Could not save to Downloads. Use Share."
+                    }
+            }) { Text("Download PDF") }
+            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = {
+                runCatching { ReportPdf.outstanding(context, label, rows, store.settings) }.onSuccess { ReportPdf.share(context, it) }
+            }) { Text("Share PDF") }
+            saved?.let { m ->
+                AlertDialog(onDismissRequest = { saved = null }, confirmButton = { TextButton(onClick = { saved = null }) { Text("OK") } }, text = { Text(m) })
+            }
         }
     }
 }

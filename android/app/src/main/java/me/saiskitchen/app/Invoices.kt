@@ -86,11 +86,15 @@ fun GenerateInvoiceScreen(store: KitchenStore, onClose: () -> Unit) {
                     message = "No entries for this customer in the selected period."
                 } else {
                     runCatching { InvoicePdf.make(context, summary) }
-                        .onSuccess { file = it; message = "Invoice created. Tap Share Invoice." }
+                        .onSuccess { file = it; message = "Invoice created. Tap Download PDF to save it to your phone, or Share." }
                         .onFailure { message = "Could not create invoice: ${it.message}" }
                 }
             }) { Icon(Icons.Default.PictureAsPdf, null); Spacer(Modifier.width(8.dp)); Text("Generate PDF Invoice") }
             file?.let { f ->
+                Button(modifier = Modifier.fillMaxWidth(), onClick = {
+                    message = if (InvoicePdf.saveToDownloads(context, f)) "Saved to your Downloads folder:\n${f.name}"
+                    else "Could not save to Downloads on this phone. Use Share and choose Save to Drive / Files."
+                }) { Icon(Icons.Default.PictureAsPdf, null); Spacer(Modifier.width(8.dp)); Text("Download PDF") }
                 OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { InvoicePdf.share(context, f) }) {
                     Icon(Icons.Default.Share, null); Spacer(Modifier.width(8.dp)); Text("Share Invoice")
                 }
