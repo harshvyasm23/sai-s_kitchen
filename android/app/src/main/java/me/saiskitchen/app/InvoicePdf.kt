@@ -187,9 +187,16 @@ object InvoicePdf {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "application/pdf"
             putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, file.nameWithoutExtension.replace('_', ' '))
+            clipData = android.content.ClipData.newRawUri(file.name, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(send, "Share PDF").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val chooser = Intent.createChooser(send, "Share PDF").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // make sure every app in the share list is allowed to read the file (otherwise it opens as a blank PDF)
+        context.packageManager.queryIntentActivities(send, 0).forEach {
+            context.grantUriPermission(it.activityInfo.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(chooser)
     }
 
     private fun paint(size: Float, color: Int = TEXT, bold: Boolean = false, align: Paint.Align = Paint.Align.LEFT) =
