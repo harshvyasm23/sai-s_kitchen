@@ -791,6 +791,7 @@ struct GenerateInvoiceView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
     @State private var selectedCustomer: Customer?
+    @State private var customerQuery = ""
     @State private var kind: InvoiceKind = .combined
     @State private var startDate = AppFormatters.startOfMonth()
     @State private var endDate = Date()
