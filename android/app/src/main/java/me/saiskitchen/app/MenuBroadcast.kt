@@ -47,6 +47,11 @@ object WaBusiness {
         "Hello ${name.trim().split(" ").first()}, tomorrow's menu at Sai's Kitchen (${dateLabel(d)}):\n${clean(menu)}\n\n" +
             "Pure veg, homemade with love 🙏. Order or change: 0442355458"
 
+    /** One message for everyone (broadcast list / channel / group). */
+    fun groupText(d: LocalDate, menu: String) =
+        "🙏 Jai Sai Nath 🙏\nTomorrow's menu at Sai's Kitchen (${dateLabel(d)}):\n${clean(menu)}\n\n" +
+            "Pure veg, homemade with love.\nOrder or change by call/WhatsApp: 0442355458"
+
     /** Returns null on success, otherwise the error text from Meta. */
     fun send(c: Context, toPhone: String, firstName: String, d: LocalDate, menu: String): String? = try {
         val body = JSONObject()
@@ -92,6 +97,13 @@ fun MenuBroadcastScreen(store: KitchenStore, onClose: () -> Unit) {
             TextButton(onClick = { onClose() }) { Text("Wrong menu? Go back, open Weekly menu") }
         }
         if (store.isHoliday(date)) Text("⚠ Tomorrow is marked as a holiday.", color = Brand.error)
+        Button(onClick = {
+            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, WaBusiness.groupText(date, menuText))
+            }
+            context.startActivity(android.content.Intent.createChooser(send, "Share menu").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        }, enabled = menuText.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Share menu (one message for everyone)") }
+        Text("Choose WhatsApp, then your Broadcast list (or channel/group). Everyone gets it with one tap.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         AppCard {
             Row(verticalAlignment = Alignment.CenterVertically) {

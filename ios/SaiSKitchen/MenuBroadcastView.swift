@@ -29,6 +29,11 @@ enum WaBusiness {
         return "Hello \(first), tomorrow's menu at Sai's Kitchen (\(dateLabel(date))):\n\(clean(menu))\n\nPure veg, homemade with love \u{1F64F}. Order or change: 0442355458"
     }
 
+    /// One message for everyone (broadcast list / channel / group).
+    static func groupText(date: Date, menu: String) -> String {
+        "\u{1F64F} Jai Sai Nath \u{1F64F}\nTomorrow's menu at Sai's Kitchen (\(dateLabel(date))):\n\(clean(menu))\n\nPure veg, homemade with love.\nOrder or change by call/WhatsApp: 0442355458"
+    }
+
     /// Returns nil on success, otherwise the error text from Meta.
     static func send(to phone: String, firstName: String, date: Date, menu: String) async -> String? {
         guard let url = URL(string: "https://graph.facebook.com/v21.0/\(phoneId)/messages") else { return "Bad phone number ID" }
@@ -68,6 +73,7 @@ struct MenuBroadcastView: View {
     @State private var confirm = false
     @State private var busy = false
     @State private var results: [String: String] = [:]
+    @State private var shareItems: [Any]? = nil
 
     private var people: [Customer] {
         store.customers.filter { $0.isActive && !$0.phone.isEmpty }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -88,6 +94,9 @@ struct MenuBroadcastView: View {
                         Text("Wrong menu? Go back and open Weekly menu.").font(.caption).foregroundStyle(theme.secondaryText(scheme))
                     }.padding(14).frame(maxWidth: .infinity, alignment: .leading).appCardStyle(scheme)
                     if store.isHoliday(date) { Text("\u{26A0} Tomorrow is marked as a holiday.").foregroundStyle(theme.error) }
+                    Button("Share menu (one message for everyone)") { shareItems = [WaBusiness.groupText(date: date, menu: menuText)] }
+                        .buttonStyle(.borderedProminent).tint(theme.primary).disabled(menuText.isEmpty)
+                    Text("Choose WhatsApp, then your Broadcast list (or channel/group). Everyone gets it with one tap.").font(.caption).foregroundStyle(theme.secondaryText(scheme))
 
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
@@ -147,6 +156,7 @@ struct MenuBroadcastView: View {
             selected = expected.intersection(Set(people.map(\.id)))
             showSetup = !WaBusiness.isConfigured
         }
+        .sheet(isPresented: Binding(get: { shareItems != nil }, set: { if !$0 { shareItems = nil } })) { ShareSheetMany(items: shareItems ?? []) }
         .alert("Send menu now?", isPresented: $confirm) {
             Button("Send") {
                 busy = true; results = [:]
