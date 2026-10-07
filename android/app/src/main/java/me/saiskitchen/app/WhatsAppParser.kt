@@ -20,6 +20,7 @@ import java.time.LocalDate
 data class ParsedTiffin(
     val raw: String, val name: String, val noon: Double, val evening: Double,
     val price: Double, val delivery: Double, val place: String?, val warnings: List<String>,
+    val placeKey: String? = null, val rawPlace: String? = null,
 )
 
 data class ParsedItem(val name: String, val qty: Double, val price: Double)
@@ -50,18 +51,38 @@ object WhatsAppParser {
     private fun num(s: String) = s.replace(',', '.').toDouble()
     private fun has(p: String, rx: String) = Regex(rx).containsMatchIn(p)
 
-    /** label, delivery, warning */
+    class Place(val key: String, val label: String, val rate: Double, val words: List<String>)
+
+    /** Delivery stops. rate = charge PER TIFFIN. */
+    val PLACES = listOf(
+        Place("home", "Home / pickup", 0.0, listOf("home", "ghar", "pickup", "pick", "self", "collect", "takeaway", "free", "nodelivery")),
+        Place("omena", "Iso Omena", 1.0, listOf("omena", "isoomena")),
+        Place("pasila", "Pasila", 0.5, listOf("pasila")),
+        Place("lepp", "Leppävaara", 0.5, listOf("leppavaara", "leppavara", "lepavara", "sello")),
+        Place("myyr", "Myyrmanni", 0.5, listOf("myyrmanni", "myyrmaki", "myrmanni")),
+        Place("station", "Helsinki Railway Station", 0.5, listOf("helsinki", "hki", "railway", "rautatie", "rautatieasema", "station", "stn", "asema")),
+    )
+    private val PLACE_TAIL = setOf("iso", "railway", "helsinki", "central", "at", "in")
+
+    fun placeByKey(key: String?) = PLACES.firstOrNull { it.key == key }
+
+    private fun wordMatch(tok: String, word: String): Boolean {
+        if (tok == word) return true
+        if (tok.length < 5 || word.length < 5) return false
+        return lev(tok, word) <= (if (word.length >= 8) 2 else 1)
+    }
+
+    /** Finds a delivery stop in free text, forgiving of spelling mistakes ("Lepavara", "passila"). */
+    fun findPlace(text: String): Place? {
+        val toks = norm(text).split(Regex("[^a-z]+")).filter { it.isNotEmpty() }
+        for (p in PLACES) if (toks.any { t -> p.words.any { w -> wordMatch(t, w) } }) return p
+        return null
+    }
+
+    /** label, delivery (per tiffin), warning */
     fun placeInfo(text: String): Triple<String, Double, String?> {
-        val p = norm(text)
-        return when {
-            has(p, """home|ghar|pick\s*up|pickup|self|collect|take\s*away|takeaway|no delivery|free""") -> Triple("Home / pickup", 0.0, null)
-            has(p, "omena") -> Triple("Iso Omena", 1.0, null)
-            has(p, "pasila") -> Triple("Pasila", 0.5, null)
-            has(p, """lepp?a+v?a+ra+|sello""") -> Triple("Leppävaara", 0.5, null)
-            has(p, """myyrman|myyrmaki""") -> Triple("Myyrmanni", 0.5, null)
-            has(p, """helsinki|railway|rautatie|station|asema|hki""") -> Triple("Helsinki Railway Station", 0.5, null)
-            else -> Triple(text.trim(), 0.5, "Unknown place '${text.trim()}' - used 0.50 delivery")
-        }
+        val p = findPlace(text) ?: return Triple(text.trim(), 0.5, "Unknown place '${text.trim()}' - used 0.50 delivery")
+        return Triple(p.label, p.rate, null)
     }
 
     fun parseDate(text: String, monthFirst: Boolean): LocalDate? {
@@ -83,10 +104,20 @@ object WhatsAppParser {
         val low = norm(body)
         val full = norm(s)
         var noon = 0.0; var evening = 0.0
-        for (m in Regex("($NUM)\\s*(?:$TIF\\s*)?(?:noon|lunch|morning)").findAll(low)) noon += num(m.groupValues[1])
-        for (m in Regex("(?:noon|lunch|morning)\\s*[:=x]?\\s*($NUM)").findAll(low)) noon += num(m.groupValues[1])
-        for (m in Regex("($NUM)\\s*(?:$TIF\\s*)?(?:evening|dinner|night)").findAll(low)) evening += num(m.groupValues[1])
-        for (m in Regex("(?:evening|dinner|night)\\s*[:=x]?\\s*($NUM)").findAll(low)) evening += num(m.groupValues[1])
+        // "1 noon", "2 tiffins evening" first; each number is used once, so "1 noon 1 evening" is not counted twice
+        var rest = low
+        for ((words, isNoon) in listOf("noon|lunch|morning" to true, "evening|dinner|night" to false)) {
+            for (m in Regex("($NUM)\\s*(?:$TIF\\s*)?(?:$words)").findAll(rest).toList()) {
+                if (isNoon) noon += num(m.groupValues[1]) else evening += num(m.groupValues[1])
+                rest = rest.replaceRange(m.range, " ".repeat(m.value.length))
+            }
+        }
+        for ((words, isNoon) in listOf("noon|lunch|morning" to true, "evening|dinner|night" to false)) {
+            for (m in Regex("(?:$words)\\s*[:=x]?\\s*($NUM)").findAll(rest).toList()) {
+                if (isNoon) noon += num(m.groupValues[1]) else evening += num(m.groupValues[1])
+                rest = rest.replaceRange(m.range, " ".repeat(m.value.length))
+            }
+        }
         if (noon + evening == 0.0) {
             var q = 1.0
             val qm = Regex("($NUM)\\s*(?:x\\s*)?$TIF").find(low) ?: Regex("$TIF\\s*[:=x]\\s*($NUM)").find(low)
@@ -98,21 +129,34 @@ object WhatsAppParser {
         if (prm != null) price = num(prm.groupValues[1].ifEmpty { prm.groupValues[2].ifEmpty { prm.groupValues[3] } })
         var delivery = 0.0
         var label: String? = null
-        if (place != null) {
-            val (l, d, warn) = placeInfo(place)
-            label = l; delivery = d
-            if (warn != null) w.add(warn)
-        } else {
-            w.add("No place given - no delivery charged")
-        }
+        var placeKey: String? = null
+        var rate = 0.0
+        val qty = noon + evening
+        var rawPlace = place
         Regex("delivery\\s*[:=]?\\s*($NUM)").find(full)?.let { delivery = num(it.groupValues[1]) }
         var n = if (pm != null) s.substring(0, pm.range.first) else s
         n = Regex("(?:€\\s*$NUM|$NUM\\s*(?:€|eur\\w*)|price\\s*[:=]?\\s*$NUM|delivery\\s*[:=]?\\s*$NUM)", I).replace(n, " ")
         n = Regex("$NUM\\s*(?:x\\s*)?").replace(n, " ")
         n = Regex("\\b(?:$TIF|noon|lunch|morning|evening|dinner|night|delivery|price)\\b|[:=@€+]", I).replace(n, " ")
         n = n.replace(Regex("\\s+"), " ").trim(' ', '-', '.', ',', ';', ':')
+        if (place == null) {
+            // no "at ...": a place typed straight after the name, e.g. "Pranav leppavara 1 tiffin"
+            val toks = n.split(" ").filter { it.isNotEmpty() }.toMutableList()
+            val popped = mutableListOf<String>()
+            while (toks.size > 1 && (findPlace(toks.last()) != null || norm(toks.last()) in PLACE_TAIL)) popped.add(0, toks.removeAt(toks.size - 1))
+            if (popped.isNotEmpty() && findPlace(popped.joinToString(" ")) != null) { rawPlace = popped.joinToString(" "); n = toks.joinToString(" ") }
+            else toks.addAll(popped)
+        }
+        if (rawPlace != null) {
+            val hit = findPlace(rawPlace)
+            if (hit != null) { label = hit.label; placeKey = hit.key; rate = hit.rate }
+            else { label = rawPlace.trim(); w.add("Unknown place '${rawPlace.trim()}' - please choose") }
+        } else {
+            w.add("No place given - please choose")
+        }
+        delivery = if (delivery > 0.0) delivery else (rate * qty)
         if (n.isEmpty()) w.add("No name found")
-        return ParsedTiffin(line, n, noon, evening, price, delivery, label, w)
+        return ParsedTiffin(line, n, noon, evening, price, delivery, label, w, placeKey, rawPlace)
     }
 
     fun parseItem(seg: String): Pair<ParsedItem, List<String>>? {
