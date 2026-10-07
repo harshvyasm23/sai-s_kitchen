@@ -490,6 +490,7 @@ struct AddTiffinView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
     @State private var selectedIds: Set<String> = []
+    @State private var query = ""
     @State private var date = Date()
     @State private var noonQty = "0"
     @State private var eveningQty = "1"
@@ -505,7 +506,9 @@ struct AddTiffinView: View {
         NavigationStack {
             Form {
                 Section("Customers (\(selectedIds.count) selected)") {
-                    ForEach(store.customers) { customer in
+                    SearchField(text: $query, placeholder: "Search customer by name or phone...")
+                        .listRowBackground(Color.clear)
+                    ForEach(store.customers.filter { query.isEmpty || $0.name.localizedStandardContains(query) || $0.phone.localizedStandardContains(query) }) { customer in
                         Button { toggle(customer.id) } label: {
                             HStack {
                                 VStack(alignment: .leading) {
@@ -566,6 +569,7 @@ struct AddCateringView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
     @State private var selectedIds: Set<String> = []
+    @State private var query = ""
     @State private var date = Date()
     @State private var delivery = "2"
     @State private var notes = ""
@@ -580,7 +584,9 @@ struct AddCateringView: View {
         NavigationStack {
             Form {
                 Section("Customers (\(selectedIds.count) selected)") {
-                    ForEach(store.customers) { customer in
+                    SearchField(text: $query, placeholder: "Search customer by name or phone...")
+                        .listRowBackground(Color.clear)
+                    ForEach(store.customers.filter { query.isEmpty || $0.name.localizedStandardContains(query) || $0.phone.localizedStandardContains(query) }) { customer in
                         Button { toggle(customer.id) } label: {
                             HStack {
                                 Text(customer.name).foregroundStyle(theme.text(scheme))
@@ -653,6 +659,7 @@ struct ReportsView: View {
     @Environment(KitchenStore.self) private var store
     @Environment(\.colorScheme) private var scheme
     @State private var selectedCustomer: Customer?
+    @State private var customerQuery = ""
     @State private var search = ""
     @State private var startDate = AppFormatters.startOfMonth()
     @State private var endDate = Date()
@@ -799,9 +806,19 @@ struct GenerateInvoiceView: View {
         NavigationStack {
             Form {
                 Section("Customer") {
-                    Picker("Customer", selection: $selectedCustomer) {
-                        Text("Select customer...").tag(Customer?.none)
-                        ForEach(store.customers) { customer in Text(customer.name).tag(Optional(customer)) }
+                    if let selectedCustomer {
+                        Text("Selected: \(selectedCustomer.name)").font(.headline).foregroundStyle(theme.primary)
+                    }
+                    SearchField(text: $customerQuery, placeholder: "Search customer by name or phone...")
+                        .listRowBackground(Color.clear)
+                    ForEach(Array(store.customers.filter { customerQuery.isEmpty || $0.name.localizedStandardContains(customerQuery) || $0.phone.localizedStandardContains(customerQuery) }.prefix(customerQuery.isEmpty ? 6 : 10))) { customer in
+                        Button { selectedCustomer = customer; customerQuery = "" } label: {
+                            HStack {
+                                Text(customer.name).foregroundStyle(theme.text(scheme))
+                                Spacer()
+                                if selectedCustomer?.id == customer.id { Image(systemName: "checkmark.circle.fill").foregroundStyle(theme.primary) }
+                            }
+                        }
                     }
                 }
                 Section("Invoice Type") {

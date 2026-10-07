@@ -48,6 +48,7 @@ fun ActionCard(icon: ImageVector, title: String, subtitle: String, color: Color,
 @Composable
 fun AddTiffinScreen(store: KitchenStore, onClose: () -> Unit) {
     var selected by remember { mutableStateOf(setOf<String>()) }
+    var query by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(LocalDate.now()) }
     var noon by remember { mutableStateOf("0") }
     var evening by remember { mutableStateOf("1") }
@@ -73,7 +74,8 @@ fun AddTiffinScreen(store: KitchenStore, onClose: () -> Unit) {
         AppCard {
             Text("Customers (${selected.size} selected)", fontWeight = FontWeight.Bold)
             if (store.customers.isEmpty()) Text("Add a customer first (Customers tab).", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            store.customers.forEach { c ->
+            if (store.customers.size > 5) SearchField(query, { query = it }, "Search customer by name or phone...")
+            store.customers.filter { query.isBlank() || it.name.contains(query, true) || it.phone.contains(query, true) }.forEach { c ->
                 CustomerPickRow(c, c.id in selected) { selected = if (c.id in selected) selected - c.id else selected + c.id }
             }
         }
@@ -114,6 +116,7 @@ internal class DraftItem(val key: Int) {
 @Composable
 fun AddCateringScreen(store: KitchenStore, onClose: () -> Unit) {
     var selected by remember { mutableStateOf(setOf<String>()) }
+    var query by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(LocalDate.now()) }
     var delivery by remember { mutableStateOf("0") }
     var notes by remember { mutableStateOf("") }
@@ -140,7 +143,8 @@ fun AddCateringScreen(store: KitchenStore, onClose: () -> Unit) {
         AppCard {
             Text("Customers (${selected.size} selected)", fontWeight = FontWeight.Bold)
             if (store.customers.isEmpty()) Text("Add a customer first (Customers tab).", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            store.customers.forEach { c ->
+            if (store.customers.size > 5) SearchField(query, { query = it }, "Search customer by name or phone...")
+            store.customers.filter { query.isBlank() || it.name.contains(query, true) || it.phone.contains(query, true) }.forEach { c ->
                 CustomerPickRow(c, c.id in selected) { selected = if (c.id in selected) selected - c.id else selected + c.id }
             }
         }

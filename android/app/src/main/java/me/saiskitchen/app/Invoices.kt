@@ -40,16 +40,12 @@ fun GenerateInvoiceScreen(store: KitchenStore, onClose: () -> Unit) {
         AppCard {
             Text("Customer", fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
-            ExposedDropdownMenuBox(expanded = menu, onExpandedChange = { menu = it }) {
-                OutlinedTextField(
-                    value = customer?.name ?: "Select customer...", onValueChange = {}, readOnly = true,
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(menu) },
-                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
-                )
-                ExposedDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    store.customers.forEach { c ->
-                        DropdownMenuItem(text = { Text(c.name) }, onClick = { customerId = c.id; file = null; menu = false })
-                    }
+            var q by remember { mutableStateOf("") }
+            if (customer != null) Text("Selected: ${customer.name}", fontWeight = FontWeight.Bold, color = Brand.primary)
+            SearchField(q, { q = it }, "Search customer by name or phone...")
+            store.customers.filter { q.isBlank() || it.name.contains(q, true) || it.phone.contains(q, true) }.take(if (q.isBlank()) 6 else 10).forEach { c ->
+                TextButton(onClick = { customerId = c.id; file = null; q = "" }, modifier = Modifier.fillMaxWidth()) {
+                    Text(c.name + if (c.phone.isNotBlank()) "  •  ${c.phone}" else "", modifier = Modifier.fillMaxWidth())
                 }
             }
         }
