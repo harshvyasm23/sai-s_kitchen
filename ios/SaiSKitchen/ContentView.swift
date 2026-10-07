@@ -903,6 +903,7 @@ struct SettingsView: View {
     @State private var showAll = false
     @State private var showOutstanding = false
     @State private var showDataCheck = false
+    @State private var showNames = false
     @State private var showImporter = false
     @State private var exportFile: ExportFile?
     @State private var message: String?
@@ -927,6 +928,7 @@ struct SettingsView: View {
                             Button { showMonthly = true } label: { Label("Monthly Entries", systemImage: "calendar") }
                             Button { showAll = true } label: { Label("View All Entries", systemImage: "list.bullet.rectangle") }
                             Button { showOutstanding = true } label: { Label("Outstanding Report", systemImage: "exclamationmark.circle") }
+                            Button { showNames = true } label: { Label("Standardize Names", systemImage: "textformat") }
                             Button { showDataCheck = true } label: {
                                 let n = store.duplicateCustomerGroups().count + store.sameDayGroups().count
                                 Label("Data Check" + (n > 0 ? "  \u{26A0} \(n) to review" : "  \u{2713}"), systemImage: "checkmark.shield")
@@ -965,6 +967,7 @@ struct SettingsView: View {
             .sheet(isPresented: $showAll) { AllEntriesView() }
             .sheet(isPresented: $showOutstanding) { OutstandingReportView() }
             .sheet(isPresented: $showDataCheck) { DataCheckView() }
+            .sheet(isPresented: $showNames) { StandardizeNamesView() }
             .sheet(item: $exportFile) { ShareSheet(url: $0.url) }
             .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json, .plainText, .data]) { result in
                 switch result {

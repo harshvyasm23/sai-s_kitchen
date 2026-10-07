@@ -39,7 +39,7 @@ enum EntryPlanner {
     }
 
     private static func toks(_ s: String) -> [String] {
-        WhatsAppParser.norm(s).components(separatedBy: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789").inverted).filter { !$0.isEmpty }
+        NameStd.core(s).components(separatedBy: " ").filter { !$0.isEmpty }
     }
 
     /// Finds who a typed name probably means.

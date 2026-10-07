@@ -278,19 +278,19 @@ object WhatsAppParser {
 
     /** status: matched | ambiguous | new */
     fun matchCustomer(name: String, customers: List<Customer>): Pair<String, Customer?> {
-        val n = norm(name).trim()
+        val n = NameStd.core(name)
         if (n.isEmpty()) return Pair("new", null)
-        customers.firstOrNull { norm(it.name).trim() == n }?.let { return Pair("matched", it) }
+        customers.firstOrNull { NameStd.core(it.name) == n }?.let { return Pair("matched", it) }
         val first = n.split(" ")[0]
         val fz = customers.filter {
-            val c = norm(it.name).trim()
+            val c = NameStd.core(it.name)
             c.startsWith(n) || n.startsWith(c) || c.split(" ")[0] == first
         }
         if (fz.size == 1) return Pair("matched", fz[0])
         if (fz.size > 1) return Pair("ambiguous", fz[0])
         val lim = if (n.length <= 5) 1 else 2
         val near = customers.filter {
-            val c = norm(it.name).trim()
+            val c = NameStd.core(it.name)
             minOf(lev(n, c), lev(n, c.split(" ")[0])) <= lim
         }
         if (near.size == 1) return Pair("matched", near[0])

@@ -5,6 +5,7 @@ var fails = 0
 fun check(name: String, ok: Boolean, extra: String = "") { if (!ok) { fails++; println("FAIL: $name $extra") } else println("ok:   $name") }
 
 fun main() {
+    qaNames()
     val c = listOf("Pranav Bhatt", "Meenakshi Patel", "Mina Shah", "Parthiv Bhatt", "Chintan thakor", "Tushar patel", "Saumil bhai", "Kiran bhai parmar", "Manish bhai sorathiya", "Hardik bhai sorathiya", "Poojan bhai thakar", "Jay bhai patel", "Tilak bhai", "Aroona")
         .map { Customer(name = it, phone = "1") }
     val d = LocalDate.of(2026, 10, 7)
@@ -32,7 +33,7 @@ fun main() {
     check("case", kind("pranav bhatt") == EntryPlanner.Kind.EXACT)
     check("first name unique", kind("Pranav") == EntryPlanner.Kind.UNIQUE)
     check("first name typo -> typo", kind("Pranaav") == EntryPlanner.Kind.TYPO, kind("Pranaav").toString())
-    check("bhai ambiguous", kind("bhai") == EntryPlanner.Kind.AMBIGUOUS)
+    check("bare bhai is not a name", kind("bhai") == EntryPlanner.Kind.NONE)
     check("Bhatt ambiguous? (Pranav/Parthiv)", kind("Bhatt") == EntryPlanner.Kind.AMBIGUOUS)
     check("Mina vs Meenakshi", kind("Mina") != EntryPlanner.Kind.NONE, kind("Mina").toString())
     check("Meena -> asks", kind("Meena") == EntryPlanner.Kind.TYPO, kind("Meena").toString())
@@ -130,3 +131,16 @@ fun qa2() {
 }
 
 data class Quad(val a: String, val b: Double, val c: Double, val d: Double)
+
+fun qaNames() {
+    fun nm(old: String, addr: String = "") = NameStd.parse(old, addr).let { NameStd.build(it.base, it.place, it.male == true) }
+    check("bhai name", nm("Saumil bhai") == "Saumil Bhai Sai's Kitchen", nm("Saumil bhai"))
+    check("noise stripped", nm("Pranauv sai tifin leppavara", "") == "Pranauv Leppävaara Bhai Sai's Kitchen", nm("Pranauv sai tifin leppavara"))
+    check("flag emoji", nm("Parthiv Bhatt 🇫🇮 Sai's tiffin") == "Parthiv Bhatt Bhai Sai's Kitchen", nm("Parthiv Bhatt 🇫🇮 Sai's tiffin"))
+    check("female", nm("Priti") == "Priti Sai's Kitchen", nm("Priti"))
+    check("idempotent", nm("Sudhansu Bhai Sai's Kitchen") == "Sudhansu Bhai Sai's Kitchen", nm("Sudhansu Bhai Sai's Kitchen"))
+    check("iso omena", nm("Bhargav sai tifin iso omena") == "Bhargav Iso Omena Bhai Sai's Kitchen", nm("Bhargav sai tifin iso omena"))
+    val c = listOf("Pranav Bhai Anand pasila", "Sudhansu Bhai Sai's Kitchen").map { Customer(name = it, phone = "1") }
+    check("match ignores suffix", EntryPlanner.match("sudhansu", c).kind == EntryPlanner.Kind.EXACT)
+    check("match typo with suffix", EntryPlanner.match("sudhanshu", c).candidates.firstOrNull()?.name == "Sudhansu Bhai Sai's Kitchen")
+}

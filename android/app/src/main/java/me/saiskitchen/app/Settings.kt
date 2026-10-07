@@ -55,6 +55,9 @@ fun SettingsScreen(store: KitchenStore, onOpen: (String) -> Unit) {
                     Text("Find duplicate customers and doubled entries", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            TextButton(onClick = { onOpen("names") }, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) { Text("Standardize Names"); Text("Name Bhai Sai's Kitchen format for every customer", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
             TextButton(onClick = { onOpen("outstanding") }, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth()) { Text("Outstanding Report"); Text("Check pending payments", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }

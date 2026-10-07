@@ -348,19 +348,19 @@ enum WhatsAppParser {
 
     /// status: matched | ambiguous | new
     static func matchCustomer(_ name: String, in customers: [Customer]) -> (status: String, customer: Customer?) {
-        let n = norm(name).trimmingCharacters(in: .whitespaces)
+        let n = NameStd.core(name)
         if n.isEmpty { return ("new", nil) }
-        if let ex = customers.first(where: { norm($0.name).trimmingCharacters(in: .whitespaces) == n }) { return ("matched", ex) }
+        if let ex = customers.first(where: { NameStd.core($0.name) == n }) { return ("matched", ex) }
         let firstWord = n.components(separatedBy: " ")[0]
         let fz = customers.filter {
-            let c = norm($0.name).trimmingCharacters(in: .whitespaces)
+            let c = NameStd.core($0.name)
             return c.hasPrefix(n) || n.hasPrefix(c) || c.components(separatedBy: " ")[0] == firstWord
         }
         if fz.count == 1 { return ("matched", fz[0]) }
         if fz.count > 1 { return ("ambiguous", fz[0]) }
         let lim = n.count <= 5 ? 1 : 2
         let near = customers.filter {
-            let c = norm($0.name).trimmingCharacters(in: .whitespaces)
+            let c = NameStd.core($0.name)
             return min(lev(n, c), lev(n, c.components(separatedBy: " ")[0])) <= lim
         }
         if near.count == 1 { return ("matched", near[0]) }

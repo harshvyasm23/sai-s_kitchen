@@ -40,7 +40,7 @@ object EntryPlanner {
         return p[b.length]
     }
 
-    private fun toks(s: String) = WhatsAppParser.norm(s).split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
+    private fun toks(s: String) = NameStd.core(s).split(" ").filter { it.isNotEmpty() }
 
     /** Finds who a typed name probably means. */
     fun match(name: String, customers: List<Customer>): Match {
