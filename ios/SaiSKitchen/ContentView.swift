@@ -46,6 +46,8 @@ struct DashboardView: View {
     @State private var customStart: Date = Date()
     @State private var customEnd: Date = Date()
     @State private var selectedMonth: Date = Date()
+    @State private var showKitchen = false
+    @State private var showMoney = false
     private let theme = AppTheme()
 
     enum PeriodFilter: String, CaseIterable, Identifiable {
@@ -89,6 +91,20 @@ struct DashboardView: View {
                         header
                         periodCard
                             .padding(.top, -18)
+                        Button { showKitchen = true } label: {
+                            let plan = store.plannedFor(Date()).filter { $0.entry != nil || (!$0.skipped && !store.isHoliday(Date())) }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Today's Kitchen").font(.headline).foregroundStyle(theme.text(scheme))
+                                Text("\(plan.reduce(0) { $0 + ($1.entry?.quantity ?? $1.qty) }.clean) tiffins to cook \u{2022} \(plan.count) customers").fontWeight(.semibold).foregroundStyle(theme.primary)
+                                Text("Route, schedules, skip days, weekly menu poster").font(.caption).foregroundStyle(theme.secondaryText(scheme))
+                            }.padding(14).frame(maxWidth: .infinity, alignment: .leading).appCardStyle(scheme)
+                        }.buttonStyle(.plain)
+                        Button { showMoney = true } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Money Overview").font(.headline).foregroundStyle(theme.text(scheme))
+                                Text("Who owes money, WhatsApp reminders, best customers").font(.caption).foregroundStyle(theme.secondaryText(scheme))
+                            }.padding(14).frame(maxWidth: .infinity, alignment: .leading).appCardStyle(scheme)
+                        }.buttonStyle(.plain)
                         metricGrid
                         revenueCard
                         comparisonCard
@@ -99,6 +115,8 @@ struct DashboardView: View {
                 .ignoresSafeArea(edges: .top)
             }
         }
+        .sheet(isPresented: $showKitchen) { KitchenPlanView() }
+        .sheet(isPresented: $showMoney) { MoneyView() }
     }
 
     private var header: some View {

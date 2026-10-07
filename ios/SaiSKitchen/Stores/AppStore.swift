@@ -8,6 +8,10 @@ final class KitchenStore {
     var cateringOrders: [CateringOrder] = []
     var payments: [Payment] = []
     var settings: AppSettings = .default
+    var schedules: [Schedule] = []
+    var skips: [Skip] = []
+    var delivered: [String] = []
+    var menu: [String: String] = DefaultMenu.days
     var themeMode: ThemeMode = .auto
 
     private let customersKey = "sai_kitchen_ios_customers"
@@ -16,6 +20,10 @@ final class KitchenStore {
     private let paymentsKey = "sai_kitchen_ios_payments"
     private let settingsKey = "sai_kitchen_ios_settings"
     private let themeKey = "sai_kitchen_ios_theme"
+    private let schedulesKey = "sai_kitchen_ios_schedules"
+    private let skipsKey = "sai_kitchen_ios_skips"
+    private let deliveredKey = "sai_kitchen_ios_delivered"
+    private let menuKey = "sai_kitchen_ios_menu"
 
     init() {
         loadAll()
@@ -28,6 +36,82 @@ final class KitchenStore {
         payments = load([Payment].self, key: paymentsKey) ?? []
         settings = load(AppSettings.self, key: settingsKey) ?? .default
         themeMode = load(ThemeMode.self, key: themeKey) ?? .auto
+        schedules = load([Schedule].self, key: schedulesKey) ?? []
+        skips = load([Skip].self, key: skipsKey) ?? []
+        delivered = load([String].self, key: deliveredKey) ?? []
+        var m = DefaultMenu.days
+        for (k, v) in (load([String: String].self, key: menuKey) ?? [:]) { m[k] = v }
+        menu = m
+    }
+
+    // MARK: daily plan - weekly schedules, skipped days, delivered ticks, weekly menu
+    static func dayKey(_ d: Date) -> String {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: d)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+    static func isoWeekday(_ d: Date) -> Int { let w = Calendar.current.component(.weekday, from: d); return w == 1 ? 7 : w - 1 }
+
+    func schedule(for customerId: String) -> Schedule? { schedules.first { $0.customerId == customerId } }
+    func setSchedule(_ s: Schedule) {
+        schedules.removeAll { $0.customerId == s.customerId }
+        schedules.append(s)
+        save(schedules, key: schedulesKey)
+    }
+    func removeSchedule(_ customerId: String) {
+        schedules.removeAll { $0.customerId == customerId }
+        save(schedules, key: schedulesKey)
+    }
+    func isSkipped(_ customerId: String, _ date: Date) -> Bool {
+        let k = Self.dayKey(date)
+        return skips.contains { $0.day == k && ($0.customerId == customerId || $0.customerId.isEmpty) }
+    }
+    func isHoliday(_ date: Date) -> Bool { let k = Self.dayKey(date); return skips.contains { $0.day == k && $0.customerId.isEmpty } }
+    func setSkip(_ customerId: String, _ date: Date, on: Bool) {
+        let k = Self.dayKey(date)
+        skips.removeAll { $0.customerId == customerId && $0.day == k }
+        if on { skips.append(Skip(customerId: customerId, day: k)) }
+        save(skips, key: skipsKey)
+    }
+    func isDelivered(_ customerId: String, _ date: Date) -> Bool { delivered.contains("\(Self.dayKey(date))|\(customerId)") }
+    func toggleDelivered(_ customerId: String, _ date: Date) {
+        let k = "\(Self.dayKey(date))|\(customerId)"
+        if let i = delivered.firstIndex(of: k) { delivered.remove(at: i) } else { delivered.append(k) }
+        save(delivered, key: deliveredKey)
+    }
+    func saveMenu(_ m: [String: String]) { menu = m; save(m, key: menuKey) }
+
+    /// Everyone expected on [date] (from weekly schedules) plus anyone who already has an entry that day.
+    func plannedFor(_ date: Date) -> [Planned] {
+        let cal = Calendar.current
+        let dayEntries = tiffins.filter { cal.isDate($0.date, inSameDayAs: date) }
+        var out: [Planned] = []
+        var seen = Set<String>()
+        let wd = Self.isoWeekday(date)
+        for s in schedules {
+            guard let c = customers.first(where: { $0.id == s.customerId && $0.isActive }), s.days.contains(wd) else { continue }
+            seen.insert(c.id)
+            out.append(Planned(customer: c, noon: s.noon, evening: s.evening, place: s.place, entry: dayEntries.first { $0.customerId == c.id },
+                               skipped: isSkipped(c.id, date), scheduled: true))
+        }
+        for e in dayEntries {
+            guard let c = customers.first(where: { $0.id == e.customerId }), !seen.contains(c.id) else { continue }
+            seen.insert(c.id)
+            let rate = e.deliveryCharge / max(e.quantity, 1)
+            let place = e.deliveryCharge == 0 ? "home" : (abs(rate - 1.0) < 0.01 ? "omena" : "other")
+            out.append(Planned(customer: c, noon: e.noonQty, evening: e.eveningQty, place: place, entry: e, skipped: false, scheduled: false))
+        }
+        return out.sorted { $0.customer.name.localizedCaseInsensitiveCompare($1.customer.name) == .orderedAscending }
+    }
+
+    /// Creates the tiffin entry for a planned line. Never creates a second entry on the same day.
+    @discardableResult
+    func confirmPlanned(_ p: Planned, _ date: Date) -> Bool {
+        if p.entry != nil || p.skipped || p.qty <= 0 { return false }
+        if tiffins.contains(where: { $0.customerId == p.customer.id && Calendar.current.isDate($0.date, inSameDayAs: date) }) { return false }
+        let rate = WhatsAppParser.places.first { $0.key == p.place }?.rate ?? settings.defaultDeliveryCharge
+        addMultipleTiffins([TiffinEntry(date: date, customerId: p.customer.id, noonQty: p.noon, eveningQty: p.evening,
+                                        unitPrice: settings.defaultTiffinPrice, deliveryCharge: (rate * p.qty).roundedToCents, notes: "Scheduled")])
+        return true
     }
 
     func persistAll() {
@@ -181,6 +265,8 @@ final class KitchenStore {
         tiffins = []
         cateringOrders = []
         payments = []
+        schedules = []; skips = []; delivered = []
+        save(schedules, key: schedulesKey); save(skips, key: skipsKey); save(delivered, key: deliveredKey)
         save(payments, key: paymentsKey)
         save(customers, key: customersKey)
         save(tiffins, key: tiffinsKey)

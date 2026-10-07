@@ -164,3 +164,45 @@ nonisolated struct DashboardMetrics: Hashable, Sendable {
 nonisolated extension Double {
     var roundedToCents: Double { (self * 100).rounded() / 100 }
 }
+
+
+/// A regular customer's weekly pattern. days = ISO weekdays (1 = Monday ... 7 = Sunday). place = a WhatsAppParser.places key.
+nonisolated struct Schedule: Codable, Hashable, Sendable {
+    var customerId: String
+    var days: [Int]
+    var noon: Double
+    var evening: Double
+    var place: String
+}
+
+/// A day with no tiffin. customerId "" means a holiday for everyone. day = "yyyy-MM-dd".
+nonisolated struct Skip: Identifiable, Codable, Hashable, Sendable {
+    var id: String = UUID().uuidString
+    var customerId: String
+    var day: String
+}
+
+/// One line of the day plan: who, how many, where, and what has happened already.
+struct Planned: Identifiable {
+    var customer: Customer
+    var noon: Double
+    var evening: Double
+    var place: String
+    var entry: TiffinEntry?
+    var skipped: Bool
+    var scheduled: Bool
+    var id: String { customer.id }
+    var qty: Double { noon + evening }
+}
+
+enum DefaultMenu {
+    static let days: [String: String] = [
+        "1": "Every Monday the menu changes",
+        "2": "Dal, Rice, Sabji, Roti",
+        "3": "Rajma Rice & Roti  OR  Dal Makhni, Jeera Rice, Roti",
+        "4": "Kadhi, Mung ki Sabji, Roti",
+        "5": "Paneer ki Sabji, Pulav Parotha  OR  Mixveg Pulav Parathe",
+        "6": "Onion Potato / Baingan Potato Sabji, Parathe  OR  Masala Khichdi / Palak Aloo, Pulav Parathe",
+        "7": "Chole Chana, Rice Parathe",
+    ]
+}
