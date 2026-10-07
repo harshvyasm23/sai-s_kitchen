@@ -90,6 +90,7 @@ fun AppRoot(store: KitchenStore, sharedText: String? = null) {
             "kitchen" -> KitchenPlanScreen(store, { overlay = it }, close)
             "schedules" -> SchedulesScreen(store, { overlay = "kitchen" })
             "menu" -> MenuScreen(store, { overlay = "kitchen" })
+            "broadcast" -> MenuBroadcastScreen(store) { overlay = "kitchen" }
             "money" -> MoneyScreen(store, { overlay = it }, close)
         }
         return

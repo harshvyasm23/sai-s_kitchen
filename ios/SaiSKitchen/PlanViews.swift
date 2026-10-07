@@ -65,6 +65,7 @@ struct KitchenPlanView: View {
                             Text("\(placeLabel(key))  \u{2022}  \(n.clean) tiffins").font(.headline).foregroundStyle(theme.primary).padding(.top, 6)
                             ForEach(rows) { p in row(p, holiday: holiday, cur: cur) }
                         }
+                        NavigationLink { MenuBroadcastView() } label: { Label("Send tomorrow's menu to customers (WhatsApp)", systemImage: "paperplane.fill") }.buttonStyle(.borderedProminent).tint(theme.primary)
                         NavigationLink { SchedulesView() } label: { Label("Weekly schedules (set who comes which days)", systemImage: "calendar") }.buttonStyle(.bordered)
                         NavigationLink { MenuView() } label: { Label("Weekly menu & poster", systemImage: "fork.knife") }.buttonStyle(.bordered)
                     }

@@ -96,6 +96,7 @@ fun KitchenPlanScreen(store: KitchenStore, onOpen: (String) -> Unit, onClose: ()
                     }
                 }
             }
+        Button(onClick = { onOpen("broadcast") }, modifier = Modifier.fillMaxWidth()) { Text("Send tomorrow's menu to customers (WhatsApp)") }
         OutlinedButton(onClick = { onOpen("schedules") }, modifier = Modifier.fillMaxWidth()) { Text("Weekly schedules (set who comes which days)") }
         OutlinedButton(onClick = { onOpen("menu") }, modifier = Modifier.fillMaxWidth()) { Text("Weekly menu & poster") }
     }
