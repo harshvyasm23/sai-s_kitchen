@@ -113,8 +113,8 @@ fun MenuScreen(store: KitchenStore, onClose: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        Button(onClick = { store.setMenu(texts.toMap()); saved = true }, modifier = Modifier.fillMaxWidth()) { Text(if (saved) "Saved ✓" else "Save menu") }
-        OutlinedButton(onClick = { store.setMenu(texts.toMap()); MenuPoster.share(context, texts.toMap(), store.settings.defaultTiffinPrice) }, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { store.saveMenu(texts.toMap()); saved = true }, modifier = Modifier.fillMaxWidth()) { Text(if (saved) "Saved ✓" else "Save menu") }
+        OutlinedButton(onClick = { store.saveMenu(texts.toMap()); MenuPoster.share(context, texts.toMap(), store.settings.defaultTiffinPrice) }, modifier = Modifier.fillMaxWidth()) {
             Text("Share weekly menu poster (image)")
         }
         TextButton(onClick = { DefaultMenu.days.forEach { (k, v) -> texts[k] = v }; saved = false }, modifier = Modifier.fillMaxWidth()) { Text("Reset to standard menu") }

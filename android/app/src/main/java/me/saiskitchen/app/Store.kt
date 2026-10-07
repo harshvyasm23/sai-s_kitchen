@@ -69,7 +69,7 @@ class KitchenStore(context: Context) {
         delivered = if (k in delivered) delivered - k else delivered + k
         prefs.edit().putString(K_DELIVERED, JSONArray(delivered.toList()).toString()).apply()
     }
-    fun setMenu(m: Map<Int, String>) { menu = m; prefs.edit().putString(K_MENU, JSONObject(m.mapKeys { it.key.toString() }).toString()).apply() }
+    fun saveMenu(m: Map<Int, String>) { menu = m; prefs.edit().putString(K_MENU, JSONObject(m.mapKeys { it.key.toString() }).toString()).apply() }
 
     /** Everyone expected on [date] (from weekly schedules) plus anyone who already has an entry that day. */
     fun plannedFor(date: LocalDate): List<Planned> {
@@ -113,7 +113,7 @@ class KitchenStore(context: Context) {
             root.optJSONArray("schedules")?.map { scheduleFrom(it) }?.filter { s -> customers.any { it.id == s.customerId } && schedule(s.customerId) == null }
                 ?.forEach { setSchedule(it) }
             root.optJSONArray("skips")?.map { skipFrom(it) }?.filter { n -> skips.none { it.id == n.id } }?.let { if (it.isNotEmpty()) { skips = skips + it; saveSkips() } }
-            root.optJSONObject("menu")?.let { setMenu(menuFrom(it)) }
+            root.optJSONObject("menu")?.let { saveMenu(menuFrom(it)) }
         }
     }
 
