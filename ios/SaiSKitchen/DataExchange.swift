@@ -9,9 +9,10 @@ struct ImportSummary {
     var customers = 0
     var tiffins = 0
     var orders = 0
+    var payments = 0
     var skipped = 0
 
-    var total: Int { customers + tiffins + orders }
+    var total: Int { customers + tiffins + orders + payments }
 
     var message: String {
         if total == 0 {
@@ -21,6 +22,7 @@ struct ImportSummary {
         if customers > 0 { text += "• \(customers) customers\n" }
         if tiffins > 0 { text += "• \(tiffins) tiffin entries\n" }
         if orders > 0 { text += "• \(orders) catering orders\n" }
+        if payments > 0 { text += "• \(payments) payments\n" }
         if skipped > 0 { text += "(\(skipped) already existed and were skipped)" }
         return text
     }
@@ -30,6 +32,7 @@ struct ParsedBackup {
     var customers: [Customer]
     var tiffins: [TiffinEntry]
     var orders: [CateringOrder]
+    var payments: [Payment] = []
 }
 
 enum ExchangeError: LocalizedError {
@@ -96,6 +99,12 @@ enum DataExchange {
                         "createdAt": timestamp(o.createdAt), "updatedAt": timestamp(o.updatedAt)]
             }
         }
+        if kind == "payments" || kind == "all" {
+            root["payments"] = store.payments.map { p -> [String: Any] in
+                ["id": p.id, "customerId": p.customerId, "date": AppFormatters.isoDate(p.date), "amount": p.amount,
+                 "note": p.note, "createdAt": timestamp(p.createdAt)]
+            }
+        }
         root["exportDate"] = timestamp(Date())
         return try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
     }
@@ -135,7 +144,13 @@ enum DataExchange {
             return CateringOrder(id: id, date: date, customerId: customerId, deliveryCharge: number(o["deliveryCharge"]), notes: notes,
                                  items: items, createdAt: parseTimestamp(o["createdAt"]), updatedAt: parseTimestamp(o["updatedAt"]))
         }
-        return ParsedBackup(customers: customers, tiffins: tiffins, orders: orders)
+        let payments: [Payment] = objects("payments").compactMap { o in
+            guard let id = o["id"] as? String, let customerId = o["customerId"] as? String,
+                  !id.isEmpty, !customerId.isEmpty, let date = parseDay(o["date"]) else { return nil }
+            return Payment(id: id, customerId: customerId, date: date, amount: number(o["amount"]),
+                           note: (o["note"] as? String) ?? "", createdAt: parseTimestamp(o["createdAt"]))
+        }
+        return ParsedBackup(customers: customers, tiffins: tiffins, orders: orders, payments: payments)
     }
 }
 

@@ -9,6 +9,8 @@ struct InvoiceSummary {
     let tiffins: [TiffinEntry]
     let cateringOrders: [CateringOrder]
     let settings: AppSettings
+    var previousBalance: Double = 0
+    var paidInPeriod: Double = 0
 
     var tiffinTotal: Double { tiffins.reduce(0) { $0 + $1.total } }
     var cateringTotal: Double { cateringOrders.reduce(0) { $0 + $1.total } }
@@ -21,147 +23,218 @@ struct InvoiceSummary {
     }
 }
 
+/// Day-by-day invoice: tiffin table (noon / evening / unit / delivery / total), catering table, totals, bank details.
 @MainActor
 enum InvoicePDFGenerator {
-    private struct Row {
-        let item: String
-        let qty: Double
-        let unit: Double
-        var total: Double { (qty * unit).roundedToCents }
+    private static let page = CGRect(x: 0, y: 0, width: 595, height: 842)
+    private static let m: CGFloat = 40
+    private static let orange = UIColor(red: 1.0, green: 0.42, blue: 0.21, alpha: 1)
+    private static let text = UIColor(red: 0.18, green: 0.19, blue: 0.26, alpha: 1)
+    private static let muted = UIColor(red: 0.42, green: 0.45, blue: 0.50, alpha: 1)
+    private static let light = UIColor(red: 0.61, green: 0.64, blue: 0.69, alpha: 1)
+    private static let line = UIColor(red: 0.9, green: 0.91, blue: 0.92, alpha: 1)
+    private static let maroon = UIColor(red: 0.63, green: 0.19, blue: 0.10, alpha: 1)
+
+    private static func draw(_ str: String, x: CGFloat, y: CGFloat, w: CGFloat = 400, size: CGFloat, bold: Bool = false, color: UIColor = text, align: NSTextAlignment = .left) {
+        let p = NSMutableParagraphStyle()
+        p.alignment = align
+        p.lineBreakMode = .byTruncatingTail
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: bold ? UIFont.boldSystemFont(ofSize: size) : UIFont.systemFont(ofSize: size),
+            .foregroundColor: color, .paragraphStyle: p,
+        ]
+        (str as NSString).draw(in: CGRect(x: x, y: y - size, width: w, height: size + 8), withAttributes: attrs)
+    }
+    /// Right-aligned text whose right edge is at `right`.
+    private static func right(_ str: String, _ right: CGFloat, _ y: CGFloat, size: CGFloat, bold: Bool = false, color: UIColor = text) {
+        draw(str, x: right - 200, y: y, w: 200, size: size, bold: bold, color: color, align: .right)
+    }
+    private static func rule(_ ctx: CGContext, y: CGFloat, h: CGFloat = 1, color: UIColor) {
+        color.setFill()
+        ctx.fill(CGRect(x: m, y: y, width: page.width - 2 * m, height: h))
     }
 
-    private static func rows(_ s: InvoiceSummary) -> [Row] {
-        var out: [Row] = []
-        var deliveries: [Double] = []
-        if s.kind == .combined || s.kind == .tiffin {
-            let groups = Dictionary(grouping: s.tiffins, by: { $0.unitPrice })
-            for price in groups.keys.sorted() {
-                let q = groups[price]!.reduce(0) { $0 + $1.quantity }
-                if q > 0 { out.append(Row(item: "Tiffin Service", qty: q, unit: price)) }
-            }
-            deliveries += s.tiffins.filter { $0.deliveryCharge > 0 }.map { $0.deliveryCharge }
-        }
-        if s.kind == .combined || s.kind == .catering {
-            var order: [String] = []
-            var qtys: [String: Double] = [:]
-            var info: [String: (String, Double)] = [:]
-            for o in s.cateringOrders {
-                for it in o.items {
-                    let key = "\(it.itemName)|\(it.unitPrice)"
-                    if qtys[key] == nil { order.append(key); info[key] = (it.itemName, it.unitPrice) }
-                    qtys[key, default: 0] += it.qty
-                }
-                if o.deliveryCharge > 0 { deliveries.append(o.deliveryCharge) }
-            }
-            for key in order { out.append(Row(item: info[key]!.0, qty: qtys[key] ?? 0, unit: info[key]!.1)) }
-        }
-        let dg = Dictionary(grouping: deliveries, by: { $0 })
-        for charge in dg.keys.sorted() { out.append(Row(item: "Delivery", qty: Double(dg[charge]!.count), unit: charge)) }
-        return out
-    }
-
-    static func makePDF(summary: InvoiceSummary) throws -> URL {
-        let page = CGRect(x: 0, y: 0, width: 595, height: 842)
-        let renderer = UIGraphicsPDFRenderer(bounds: page)
-        let fileName = "\(summary.customer.name.replacingOccurrences(of: " ", with: "_"))_Sai_Kitchen_Invoice_\(AppFormatters.isoDate(Date())).pdf"
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-
-        let orange = UIColor(red: 1.0, green: 0.42, blue: 0.21, alpha: 1)
-        let text = UIColor(red: 0.18, green: 0.19, blue: 0.26, alpha: 1)
-        let muted = UIColor(red: 0.42, green: 0.45, blue: 0.50, alpha: 1)
-        let light = UIColor(red: 0.61, green: 0.64, blue: 0.69, alpha: 1)
-        let line = UIColor(red: 0.9, green: 0.91, blue: 0.92, alpha: 1)
-        let maroon = UIColor(red: 0.63, green: 0.19, blue: 0.10, alpha: 1)
-        let m: CGFloat = 40
-        let cur = summary.settings.currency
+    /// Draws one customer's invoice, starting on a fresh page of `context`.
+    static func render(_ s: InvoiceSummary, into context: UIGraphicsPDFRendererContext, invoiceNo: String) {
+        let cur = s.settings.currency
         let today = AppFormatters.displayDate(Date())
-        let invoiceNo = "INV-\(Int(Date().timeIntervalSince1970 * 1000))"
-        let all = rows(summary)
-        let subtotal = all.reduce(0) { $0 + $1.total }.roundedToCents
         let logo = UIImage(named: "InvoiceLogo")
+        let rightEdge = page.width - m - 10
+        func money(_ v: Double) -> String { AppFormatters.currency(v, code: cur) }
 
-        func draw(_ str: String, x: CGFloat, y: CGFloat, w: CGFloat = 400, size: CGFloat, bold: Bool = false, color: UIColor = text, align: NSTextAlignment = .left) {
-            let p = NSMutableParagraphStyle()
-            p.alignment = align
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: bold ? UIFont.boldSystemFont(ofSize: size) : UIFont.systemFont(ofSize: size),
-                .foregroundColor: color, .paragraphStyle: p,
-            ]
-            (str as NSString).draw(in: CGRect(x: x, y: y - size, width: w, height: size + 8), withAttributes: attrs)
-        }
-        func rule(_ ctx: CGContext, y: CGFloat, h: CGFloat = 1, color: UIColor) {
-            color.setFill()
-            ctx.fill(CGRect(x: m, y: y, width: page.width - 2 * m, height: h))
-        }
-        func footer(_ ctx: CGContext) {
+        context.beginPage()
+        var ctx = context.cgContext
+
+        func footer() {
             rule(ctx, y: page.height - 70, color: line)
-            draw("Generated by \(summary.settings.companyName) \u{2022} \(today)", x: 0, y: page.height - 40, w: page.width, size: 9, color: muted, align: .center)
-            draw("For any queries, please contact \(summary.settings.companyPhone)", x: 0, y: page.height - 26, w: page.width, size: 9, color: muted, align: .center)
+            draw("Generated by \(s.settings.companyName) \u{2022} \(today)", x: 0, y: page.height - 44, w: page.width, size: 9, color: muted, align: .center)
+            draw("For any queries, please contact \(s.settings.companyPhone)", x: 0, y: page.height - 30, w: page.width, size: 9, color: muted, align: .center)
         }
-        func tableHeader(_ ctx: CGContext, y: CGFloat) -> CGFloat {
-            draw("Item", x: m + 16, y: y, size: 9, bold: true, color: light)
-            draw("Qty", x: 230, y: y, w: 100, size: 9, bold: true, color: light, align: .right)
-            draw("Unit Price", x: 330, y: y, w: 100, size: 9, bold: true, color: light, align: .right)
-            draw("Total", x: page.width - m - 116, y: y, w: 100, size: 9, bold: true, color: light, align: .right)
+        func newPage() -> CGFloat {
+            footer()
+            context.beginPage()
+            ctx = context.cgContext
+            draw("\(s.settings.companyName) - Invoice \(invoiceNo) - \(s.customer.name) (continued)", x: m, y: 44, w: 500, size: 9, color: muted)
+            rule(ctx, y: 52, h: 1.5, color: orange)
+            return 84
+        }
+        func ensure(_ y: CGFloat, _ need: CGFloat) -> CGFloat { y + need > page.height - 80 ? newPage() : y }
+        func sectionTitle(_ title: String, _ y: CGFloat) -> CGFloat {
+            draw(title, x: m, y: y, size: 15, bold: true)
             rule(ctx, y: y + 10, color: line)
             return y + 34
         }
+        func summaryLine(_ label: String, _ value: String, _ y: CGFloat, bold: Bool = false, color: UIColor = text) -> CGFloat {
+            draw(label, x: m + 6, y: y, w: 300, size: bold ? 12 : 11, bold: bold, color: color)
+            right(value, rightEdge, y, size: bold ? 12 : 11, bold: true, color: color)
+            return y + 22
+        }
 
-        try renderer.writePDF(to: url) { context in
-            context.beginPage()
-            let ctx = context.cgContext
-            logo?.draw(in: CGRect(x: m, y: 36, width: 70, height: 70))
-            let tx = logo != nil ? m + 86 : m
-            draw(summary.settings.companyName, x: tx, y: 64, w: 260, size: 24, bold: true, color: orange)
-            draw(summary.settings.companyPhone, x: tx, y: 82, w: 300, size: 9.5, color: muted)
-            draw(summary.settings.companyAddress, x: tx, y: 96, w: 330, size: 9.5, color: muted)
-            draw("INVOICE", x: page.width - m - 200, y: 62, w: 200, size: 26, bold: true, align: .right)
-            draw("Invoice #: \(invoiceNo)", x: page.width - m - 240, y: 80, w: 240, size: 9.5, color: muted, align: .right)
-            draw("Date: \(today)", x: page.width - m - 240, y: 94, w: 240, size: 9.5, color: muted, align: .right)
-            rule(ctx, y: 124, h: 2, color: orange)
+        // header
+        logo?.draw(in: CGRect(x: m, y: 30, width: 70, height: 70))
+        let tx = logo != nil ? m + 82 : m
+        draw(s.settings.companyName, x: tx, y: 58, w: 260, size: 24, bold: true, color: orange)
+        draw(s.settings.companyPhone, x: tx, y: 76, w: 300, size: 9.5, color: muted)
+        draw(s.settings.companyAddress, x: tx, y: 90, w: 330, size: 9.5, color: muted)
+        right("INVOICE", page.width - m, 56, size: 26, bold: true)
+        right("Invoice #: \(invoiceNo)", page.width - m, 74, size: 9.5, color: muted)
+        right("Date: \(today)", page.width - m, 88, size: 9.5, color: muted)
+        right("Period: \(AppFormatters.displayDate(s.startDate)) - \(AppFormatters.displayDate(s.endDate))", page.width - m, 102, size: 9.5, color: muted)
+        rule(ctx, y: 118, h: 2, color: orange)
 
-            var y: CGFloat = 162
-            draw("Bill To:", x: m + 16, y: y, size: 11, bold: true)
-            draw(summary.customer.name, x: m + 16, y: y + 20, w: 300, size: 12, bold: true, color: muted)
-            if !summary.customer.phone.isEmpty { draw(summary.customer.phone, x: m + 16, y: y + 36, w: 300, size: 10, color: muted) }
-            y += 76
-            draw("Order Details", x: m, y: y, size: 15, bold: true)
-            rule(ctx, y: y + 12, color: line)
-            y = tableHeader(ctx, y: y + 38)
+        var y: CGFloat = 156
+        draw("Bill To:", x: m + 6, y: y, w: 300, size: 11, bold: true)
+        draw(s.customer.name, x: m + 6, y: y + 18, w: 300, size: 11, bold: true)
+        if !s.customer.phone.isEmpty { draw(s.customer.phone, x: m + 6, y: y + 33, w: 300, size: 10, color: muted) }
+        y += 76
 
-            for r in all {
-                if y > page.height - 110 {
-                    footer(ctx)
-                    context.beginPage()
-                    y = tableHeader(ctx, y: 60)
-                }
-                draw(r.item, x: m + 16, y: y, w: 220, size: 11, color: muted)
-                draw(r.qty.clean, x: 230, y: y, w: 100, size: 11, align: .right)
-                draw(AppFormatters.currency(r.unit, code: cur), x: 330, y: y, w: 100, size: 11, color: muted, align: .right)
-                draw(AppFormatters.currency(r.total, code: cur), x: page.width - m - 116, y: y, w: 100, size: 11, bold: true, align: .right)
+        // tiffin
+        if s.kind != .catering && !s.tiffins.isEmpty {
+            y = ensure(y, 120)
+            y = sectionTitle("Tiffin Services", y)
+            func tHeader(_ yy: CGFloat) -> CGFloat {
+                draw("Date", x: m + 6, y: yy, w: 120, size: 9, bold: true, color: light)
+                right("Noon Qty", 235, yy, size: 9, bold: true, color: light)
+                right("Evening Qty", 312, yy, size: 9, bold: true, color: light)
+                right("Unit Price", 392, yy, size: 9, bold: true, color: light)
+                right("Delivery", 466, yy, size: 9, bold: true, color: light)
+                right("Total", rightEdge, yy, size: 9, bold: true, color: light)
+                rule(ctx, y: yy + 9, color: line)
+                return yy + 30
+            }
+            y = tHeader(y)
+            for t in s.tiffins {
+                if y > page.height - 100 { y = newPage(); y = tHeader(y) }
+                draw(AppFormatters.displayDate(t.date), x: m + 6, y: y, w: 120, size: 10.5, color: muted)
+                right(t.noonQty.clean, 235, y, size: 10.5)
+                right(t.eveningQty.clean, 312, y, size: 10.5)
+                right(money(t.unitPrice), 392, y, size: 10.5, color: muted)
+                right(t.deliveryCharge > 0 ? money(t.deliveryCharge) : "Free", 466, y, size: 10.5, color: muted)
+                right(money(t.total), rightEdge, y, size: 10.5, bold: true)
                 rule(ctx, y: y + 11, h: 0.8, color: line)
-                y += 33
+                y += 31
             }
-            draw("Period: \(AppFormatters.displayDate(summary.startDate)) - \(AppFormatters.displayDate(summary.endDate))", x: m + 16, y: y - 12, size: 9, color: muted)
-            y += 20
+            y = ensure(y + 6, 90)
+            let meals = s.tiffins.reduce(0) { $0 + $1.quantity }
+            let food = s.tiffins.reduce(0) { $0 + $1.quantity * $1.unitPrice }
+            let deliveryDays = s.tiffins.filter { $0.deliveryCharge > 0 }.count
+            let delivery = s.tiffins.reduce(0) { $0 + $1.deliveryCharge }
+            y = summaryLine("Tiffins (\(meals.clean) meals)", money(food.roundedToCents), y)
+            y = summaryLine("Delivery (\(deliveryDays) deliveries)", money(delivery.roundedToCents), y)
+            y = summaryLine("Tiffin Subtotal:", money(s.tiffinTotal.roundedToCents), y, bold: true)
+            y += 14
+        }
 
-            if y > page.height - 270 {
-                footer(ctx)
-                context.beginPage()
-                y = 70
+        // catering
+        if s.kind != .tiffin && !s.cateringOrders.isEmpty {
+            y = ensure(y, 120)
+            y = sectionTitle("Catering Orders", y)
+            func cHeader(_ yy: CGFloat) -> CGFloat {
+                draw("Date", x: m + 6, y: yy, w: 90, size: 9, bold: true, color: light)
+                draw("Item", x: 130, y: yy, w: 200, size: 9, bold: true, color: light)
+                right("Qty", 365, yy, size: 9, bold: true, color: light)
+                right("Unit Price", 450, yy, size: 9, bold: true, color: light)
+                right("Total", rightEdge, yy, size: 9, bold: true, color: light)
+                rule(ctx, y: yy + 9, color: line)
+                return yy + 30
             }
-            draw("Subtotal:", x: m + 16, y: y, size: 12)
-            draw(AppFormatters.currency(subtotal, code: cur), x: page.width - m - 216, y: y, w: 200, size: 12, bold: true, align: .right)
-            y += 46
-            draw("GRAND TOTAL:", x: m + 16, y: y, size: 20, bold: true, color: orange)
-            draw(AppFormatters.currency(subtotal, code: cur), x: page.width - m - 216, y: y, w: 200, size: 20, bold: true, color: orange, align: .right)
-            y += 56
+            y = cHeader(y)
+            for o in s.cateringOrders {
+                var lines: [(String, Double, Double)] = o.items.map { ($0.itemName, $0.qty, $0.unitPrice) }
+                if o.deliveryCharge > 0 { lines.append(("Delivery", 1, o.deliveryCharge)) }
+                for (idx, l) in lines.enumerated() {
+                    if y > page.height - 100 { y = newPage(); y = cHeader(y) }
+                    if idx == 0 { draw(AppFormatters.displayDate(o.date), x: m + 6, y: y, w: 90, size: 10.5, color: muted) }
+                    draw(l.0, x: 130, y: y, w: 215, size: 10.5)
+                    right(l.1.clean, 365, y, size: 10.5)
+                    right(money(l.2), 450, y, size: 10.5, color: muted)
+                    right(money((l.1 * l.2).roundedToCents), rightEdge, y, size: 10.5, bold: true)
+                    rule(ctx, y: y + 11, h: 0.8, color: line)
+                    y += 29
+                }
+            }
+            y = ensure(y + 6, 60)
+            y = summaryLine("Catering Subtotal:", money(s.cateringTotal.roundedToCents), y, bold: true)
+            y += 14
+        }
 
-            draw("Payment Details:", x: m + 16, y: y, size: 10, bold: true, color: maroon)
-            draw("BIC: TRWIBEB1XXX", x: m + 16, y: y + 15, size: 10, color: maroon)
-            draw("IBAN: BE40 9676 8333 5963", x: m + 16, y: y + 30, size: 10, color: maroon)
-            draw("Note: Thank you for your business! Payment is due within 7 days.", x: m + 16, y: y + 56, w: 500, size: 10, color: maroon)
-            footer(ctx)
+        // totals
+        let hasBalance = abs(s.previousBalance) > 0.004 || abs(s.paidInPeriod) > 0.004
+        y = ensure(y, hasBalance ? 250 : 190)
+        if s.kind == .combined && !s.tiffins.isEmpty && !s.cateringOrders.isEmpty {
+            y = summaryLine("Tiffin Subtotal:", money(s.tiffinTotal.roundedToCents), y)
+            y = summaryLine("Catering Subtotal:", money(s.cateringTotal.roundedToCents), y)
+        }
+        y += 8
+        draw("GRAND TOTAL:", x: m + 6, y: y, w: 250, size: 20, bold: true, color: orange)
+        right(money(s.grandTotal.roundedToCents), rightEdge, y, size: 20, bold: true, color: orange)
+        y += 30
+        if hasBalance {
+            if abs(s.previousBalance) > 0.004 { y = summaryLine("Previous unpaid balance", money(s.previousBalance), y) }
+            if abs(s.paidInPeriod) > 0.004 { y = summaryLine("Payments received", "- " + money(s.paidInPeriod), y) }
+            let due = (s.grandTotal + s.previousBalance - s.paidInPeriod).roundedToCents
+            rule(ctx, y: y - 8, color: line)
+            y += 8
+            draw("TOTAL DUE:", x: m + 6, y: y, w: 250, size: 16, bold: true, color: maroon)
+            right(money(due), rightEdge, y, size: 16, bold: true, color: maroon)
+            y += 30
+        }
+        y += 16
+        draw("Payment Details:", x: m + 6, y: y, w: 300, size: 10, bold: true, color: maroon)
+        draw("BIC: TRWIBEB1XXX", x: m + 6, y: y + 15, w: 300, size: 10, color: maroon)
+        draw("IBAN: BE40 9676 8333 5963", x: m + 6, y: y + 30, w: 300, size: 10, color: maroon)
+        draw("Note: Thank you for your business! Payment is due within 7 days.", x: m + 6, y: y + 56, w: 500, size: 10, color: maroon)
+        footer()
+    }
+
+    private static func write(to url: URL, _ body: (UIGraphicsPDFRendererContext) -> Void) throws {
+        try UIGraphicsPDFRenderer(bounds: page).writePDF(to: url) { body($0) }
+    }
+
+    static func makePDF(summary: InvoiceSummary) throws -> URL {
+        let name = summary.customer.name.replacingOccurrences(of: " ", with: "_")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name)_Sai_Kitchen_Invoice_\(AppFormatters.isoDate(Date())).pdf")
+        try write(to: url) { render(summary, into: $0, invoiceNo: "INV-\(Int(Date().timeIntervalSince1970 * 1000))") }
+        return url
+    }
+
+    /// One PDF per customer.
+    static func makeEach(_ list: [InvoiceSummary]) throws -> [URL] {
+        let base = Int(Date().timeIntervalSince1970 * 1000)
+        return try list.enumerated().map { i, s in
+            let name = s.customer.name.replacingOccurrences(of: " ", with: "_")
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name)_Sai_Kitchen_Invoice_\(AppFormatters.isoDate(s.startDate))_\(AppFormatters.isoDate(s.endDate)).pdf")
+            try write(to: url) { render(s, into: $0, invoiceNo: "INV-\(base + i)") }
+            return url
+        }
+    }
+
+    /// Every customer's invoice in one PDF, each starting on a new page.
+    static func makeCombined(_ list: [InvoiceSummary], label: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Sai_Kitchen_All_Invoices_\(label.replacingOccurrences(of: " ", with: "_")).pdf")
+        let base = Int(Date().timeIntervalSince1970 * 1000)
+        try write(to: url) { ctx in
+            for (i, s) in list.enumerated() { render(s, into: ctx, invoiceNo: "INV-\(base + i)") }
         }
         return url
     }

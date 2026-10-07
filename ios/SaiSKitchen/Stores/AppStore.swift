@@ -6,12 +6,14 @@ final class KitchenStore {
     var customers: [Customer] = []
     var tiffins: [TiffinEntry] = []
     var cateringOrders: [CateringOrder] = []
+    var payments: [Payment] = []
     var settings: AppSettings = .default
     var themeMode: ThemeMode = .auto
 
     private let customersKey = "sai_kitchen_ios_customers"
     private let tiffinsKey = "sai_kitchen_ios_tiffins"
     private let cateringKey = "sai_kitchen_ios_catering"
+    private let paymentsKey = "sai_kitchen_ios_payments"
     private let settingsKey = "sai_kitchen_ios_settings"
     private let themeKey = "sai_kitchen_ios_theme"
 
@@ -23,8 +25,20 @@ final class KitchenStore {
         customers = load([Customer].self, key: customersKey) ?? []
         tiffins = load([TiffinEntry].self, key: tiffinsKey) ?? []
         cateringOrders = load([CateringOrder].self, key: cateringKey) ?? []
+        payments = load([Payment].self, key: paymentsKey) ?? []
         settings = load(AppSettings.self, key: settingsKey) ?? .default
         themeMode = load(ThemeMode.self, key: themeKey) ?? .auto
+    }
+
+    func addPayment(_ payment: Payment) {
+        payments.append(payment)
+        payments.sort { $0.date < $1.date }
+        save(payments, key: paymentsKey)
+    }
+
+    func deletePayment(_ payment: Payment) {
+        payments.removeAll { $0.id == payment.id }
+        save(payments, key: paymentsKey)
     }
 
     func addCustomer(_ customer: Customer) {
@@ -90,6 +104,13 @@ final class KitchenStore {
         let haveCustomers = Set(customers.map(\.id))
         let haveTiffins = Set(tiffins.map(\.id))
         let haveOrders = Set(cateringOrders.map(\.id))
+        let havePayments = Set(payments.map(\.id))
+        let newPayments = parsed.payments.filter { !havePayments.contains($0.id) }
+        if !newPayments.isEmpty {
+            payments.append(contentsOf: newPayments)
+            payments.sort { $0.date < $1.date }
+            save(payments, key: paymentsKey)
+        }
         let newCustomers = parsed.customers.filter { !haveCustomers.contains($0.id) }
         let newTiffins = parsed.tiffins.filter { !haveTiffins.contains($0.id) }
         let newOrders = parsed.orders.filter { !haveOrders.contains($0.id) }
@@ -99,9 +120,9 @@ final class KitchenStore {
         }
         if !newTiffins.isEmpty { addMultipleTiffins(newTiffins) }
         if !newOrders.isEmpty { addCateringOrders(newOrders) }
-        let found = parsed.customers.count + parsed.tiffins.count + parsed.orders.count
-        let added = newCustomers.count + newTiffins.count + newOrders.count
-        return ImportSummary(customers: newCustomers.count, tiffins: newTiffins.count, orders: newOrders.count, skipped: found - added)
+        let found = parsed.customers.count + parsed.tiffins.count + parsed.orders.count + parsed.payments.count
+        let added = newCustomers.count + newTiffins.count + newOrders.count + newPayments.count
+        return ImportSummary(customers: newCustomers.count, tiffins: newTiffins.count, orders: newOrders.count, payments: newPayments.count, skipped: found - added)
     }
 
     func deleteCateringOrder(_ order: CateringOrder) {
@@ -152,6 +173,8 @@ final class KitchenStore {
         customers = []
         tiffins = []
         cateringOrders = []
+        payments = []
+        save(payments, key: paymentsKey)
         save(customers, key: customersKey)
         save(tiffins, key: tiffinsKey)
         save(cateringOrders, key: cateringKey)

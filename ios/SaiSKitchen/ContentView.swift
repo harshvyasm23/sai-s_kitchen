@@ -765,6 +765,7 @@ struct InvoicesHomeView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var showingGenerator = false
     @State private var showingOutstanding = false
+    @State private var showingBulk = false
     private let theme = AppTheme()
 
     var body: some View {
@@ -772,6 +773,7 @@ struct InvoicesHomeView: View {
             ZStack {
                 theme.background(scheme).ignoresSafeArea()
                 VStack(spacing: 16) {
+                    ActionCard(icon: "square.and.arrow.up.on.square.fill", title: "Bulk Invoices", subtitle: "Make everyone's invoice at once, then send them", color: theme.primary) { showingBulk = true }
                     ActionCard(icon: "doc.text.fill", title: "Generate Invoice", subtitle: "Create a PDF invoice for any customer", color: theme.primary) { showingGenerator = true }
                     ActionCard(icon: "chart.bar.doc.horizontal.fill", title: "Outstanding Report", subtitle: "View monthly outstanding amounts by customer", color: theme.secondary) { showingOutstanding = true }
                     Spacer()
@@ -782,6 +784,7 @@ struct InvoicesHomeView: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showingGenerator = true } label: { Image(systemName: "plus") }.buttonStyle(.borderedProminent).tint(theme.primary) } }
             .sheet(isPresented: $showingGenerator) { GenerateInvoiceView() }
             .sheet(isPresented: $showingOutstanding) { OutstandingReportView() }
+            .sheet(isPresented: $showingBulk) { BulkInvoicesView() }
         }
     }
 }
@@ -872,7 +875,7 @@ struct GenerateInvoiceView: View {
             return
         }
         do {
-            generatedURL = try InvoicePDFGenerator.makePDF(summary: InvoiceSummary(customer: customer, kind: kind, startDate: startDate, endDate: endDate, tiffins: tiffins, cateringOrders: orders, settings: store.settings))
+            generatedURL = try InvoicePDFGenerator.makePDF(summary: store.invoiceSummary(customer: customer, kind: kind, start: startDate, end: endDate))
             alertText = "Invoice PDF created. Tap Download PDF to save it in Files, or Share Invoice to send it."
         } catch {
             alertText = "Failed to generate invoice. Please try again."
@@ -899,71 +902,6 @@ struct EntryCard: View {
         }
         .padding(14)
         .appCardStyle(scheme)
-    }
-}
-
-struct OutstandingReportView: View {
-    @Environment(KitchenStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var scheme
-    @State private var month = Date()
-    @State private var pdfFile: ExportFile?
-    @State private var savePDF: ExportFile?
-    private let theme = AppTheme()
-
-    private var rows: [OutstandingRow] {
-        let start = AppFormatters.startOfMonth(for: month)
-        let end = AppFormatters.endOfMonth(for: month)
-        return store.customers.map { c in
-            OutstandingRow(name: c.name, phone: c.phone,
-                           tiffin: store.tiffins(customerId: c.id, start: start, end: end).reduce(0) { $0 + $1.total },
-                           catering: store.catering(customerId: c.id, start: start, end: end).reduce(0) { $0 + $1.total })
-        }.filter { $0.total > 0 }
-    }
-
-    var body: some View {
-        let list = rows
-        NavigationStack {
-            ZStack {
-                theme.background(scheme).ignoresSafeArea()
-                ScrollView {
-                    VStack(spacing: 14) {
-                        DatePicker("Month", selection: $month, displayedComponents: .date)
-                            .padding(16)
-                            .appCardStyle(scheme)
-                        ForEach(list, id: \.name) { row in
-                            EntryCard(title: row.name, subtitle: row.phone, total: AppFormatters.currency(row.total, code: store.settings.currency), color: theme.primary)
-                        }
-                        if list.isEmpty {
-                            Text("No entries for this month.").foregroundStyle(theme.secondaryText(scheme))
-                        } else {
-                            Button { makePDF(list, save: true) } label: {
-                                Label("Download PDF (Save to Files)", systemImage: "arrow.down.doc.fill").frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(theme.primary)
-                            Button { makePDF(list, save: false) } label: {
-                                Label("Share PDF", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(theme.primary)
-                        }
-                    }
-                    .padding(20)
-                }
-            }
-            .navigationTitle("Outstanding Report")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-            .sheet(item: $pdfFile) { ShareSheet(url: $0.url) }
-            .sheet(item: $savePDF) { FileSaver(url: $0.url) }
-        }
-    }
-
-    private func makePDF(_ list: [OutstandingRow], save: Bool) {
-        let label = month.formatted(.dateTime.month(.wide).year())
-        if let url = try? OutstandingPDF.make(monthLabel: label, rows: list, settings: store.settings) {
-            if save { savePDF = ExportFile(url: url) } else { pdfFile = ExportFile(url: url) }
-        }
     }
 }
 

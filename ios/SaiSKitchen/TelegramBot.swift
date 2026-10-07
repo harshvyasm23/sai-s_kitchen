@@ -25,7 +25,7 @@ enum TelegramBot {
         for k in ["tg_token", "tg_chats", "tg_offset", "tg_code"] { d.removeObject(forKey: k) }
     }
 
-    private static let help = "Send your daily list like this:\n\nDate - 06.10.26\ndaily tiffins\n1. Pranav 1 tiffin at pasila\n2. Meena 2 tiffins at Iso Omena\n\nAlacarte\n1. Neha - 2 kg poha 12 euro, roti 20 pcs 0.5 each at Pasila\n\nCatering\n1. Rohit - chole chana 10 euro\n\nCommands: /undo removes the last message's entries, /help shows this."
+    private static let help = "Send your daily list like this:\n\nDate - 06.10.26\ndaily tiffins\n1. Pranav 1 tiffin at pasila\n2. Meena 2 tiffins at Iso Omena\n\nAlacarte\n1. Neha - 2 kg poha 12 euro, roti 20 pcs 0.5 each at Pasila\n\nCatering\n1. Rohit - chole chana 10 euro\n\nCommands: /undo removes the last message's entries, /paid Name 40 records a payment, /outstanding shows who owes, /help shows this."
 
     private static func api(_ method: String, _ body: [String: Any]) async throws -> [String: Any] {
         guard let url = URL(string: "https://api.telegram.org/bot\(token)/\(method)") else { return [:] }
@@ -81,6 +81,35 @@ enum TelegramBot {
             guard let b = d.string(forKey: "tg_batch_\(chat)").flatMap(EntryBatch.from) else { return "Nothing to undo." }
             d.removeObject(forKey: "tg_batch_\(chat)")
             return EntryWriter.undo(store: store, batch: b)
+        }
+        if t.hasPrefix("/outstanding") {
+            let cur = store.settings.currency
+            let start = Calendar.current.date(byAdding: .year, value: -5, to: Date()) ?? Date()
+            let rows = store.outstandingRows(start: start, end: Date()).filter { $0.balance > 0.004 }
+            if rows.isEmpty { return "Nobody owes anything \u{1F389}" }
+            return "Outstanding: " + AppFormatters.currency(rows.reduce(0) { $0 + $1.balance }, code: cur) + "\n" +
+                rows.sorted { $0.balance > $1.balance }.map { "\($0.name): \(AppFormatters.currency($0.balance, code: cur))" }.joined(separator: "\n")
+        }
+        if t.hasPrefix("/paid") {
+            let parts = t.dropFirst(5).trimmingCharacters(in: .whitespaces)
+            guard let range = parts.range(of: #"\s+([0-9]+(?:[.,][0-9]+)?)\s*(€|eur|euro)?\s*$"#, options: [.regularExpression, .caseInsensitive]) else {
+                return "Use: /paid <name> <amount>   e.g. /paid Aroona 40"
+            }
+            let name = parts[parts.startIndex..<range.lowerBound].trimmingCharacters(in: .whitespaces)
+            let amountText = parts[range].trimmingCharacters(in: .whitespaces).filter { "0123456789.,".contains($0) }.replacingOccurrences(of: ",", with: ".")
+            guard !name.isEmpty, let amount = Double(amountText) else { return "Use: /paid <name> <amount>   e.g. /paid Aroona 40" }
+            var hits = store.customers.filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+            if hits.isEmpty {
+                hits = store.customers.filter { $0.name.localizedCaseInsensitiveContains(name) || ($0.name.split(separator: " ").first.map(String.init) ?? "").caseInsensitiveCompare(name) == .orderedSame }
+            }
+            if hits.isEmpty { return "No customer matches \"\(name)\"." }
+            if hits.count > 1 { return "More than one match: " + hits.map(\.name).joined(separator: ", ") + ". Type the full name." }
+            let c = hits[0]
+            store.addPayment(Payment(customerId: c.id, amount: amount, note: "Telegram"))
+            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+            let bal = store.balanceBefore(customerId: c.id, date: tomorrow)
+            let cur = store.settings.currency
+            return "Recorded \(AppFormatters.currency(amount, code: cur)) from \(c.name) \u{2705}\nStill owes: \(AppFormatters.currency(max(bal, 0), code: cur))"
         }
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())

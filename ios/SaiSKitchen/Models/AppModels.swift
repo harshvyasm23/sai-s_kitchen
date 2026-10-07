@@ -117,6 +117,24 @@ nonisolated struct CateringOrder: Identifiable, Codable, Hashable, Sendable {
     var total: Double { (itemsTotal + deliveryCharge).roundedToCents }
 }
 
+nonisolated struct Payment: Identifiable, Codable, Hashable, Sendable {
+    let id: String
+    var customerId: String
+    var date: Date
+    var amount: Double
+    var note: String
+    var createdAt: Date
+
+    init(id: String = UUID().uuidString, customerId: String, date: Date = Date(), amount: Double, note: String = "", createdAt: Date = Date()) {
+        self.id = id
+        self.customerId = customerId
+        self.date = date
+        self.amount = amount
+        self.note = note
+        self.createdAt = createdAt
+    }
+}
+
 nonisolated struct AppSettings: Codable, Hashable, Sendable {
     var currency: String
     var defaultTiffinPrice: Double
