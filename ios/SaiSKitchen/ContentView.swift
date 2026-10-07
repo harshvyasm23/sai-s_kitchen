@@ -506,21 +506,7 @@ struct AddTiffinView: View {
         NavigationStack {
             Form {
                 Section("Customers (\(selectedIds.count) selected)") {
-                    SearchField(text: $query, placeholder: "Search customer by name or phone...")
-                        .listRowBackground(Color.clear)
-                    ForEach(store.customers.filter { query.isEmpty || $0.name.localizedStandardContains(query) || $0.phone.localizedStandardContains(query) }) { customer in
-                        Button { toggle(customer.id) } label: {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(customer.name).foregroundStyle(theme.text(scheme))
-                                    Text(customer.phone).font(.caption).foregroundStyle(theme.secondaryText(scheme))
-                                }
-                                Spacer()
-                                Image(systemName: selectedIds.contains(customer.id) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(selectedIds.contains(customer.id) ? theme.primary : theme.secondaryText(scheme))
-                            }
-                        }
-                    }
+                    CustomerMultiPicker(customers: store.customers, selected: selectedIds, onToggle: toggle)
                 }
                 Section("Entry Details") {
                     DatePicker("Date", selection: $date, displayedComponents: .date)
@@ -584,17 +570,7 @@ struct AddCateringView: View {
         NavigationStack {
             Form {
                 Section("Customers (\(selectedIds.count) selected)") {
-                    SearchField(text: $query, placeholder: "Search customer by name or phone...")
-                        .listRowBackground(Color.clear)
-                    ForEach(store.customers.filter { query.isEmpty || $0.name.localizedStandardContains(query) || $0.phone.localizedStandardContains(query) }) { customer in
-                        Button { toggle(customer.id) } label: {
-                            HStack {
-                                Text(customer.name).foregroundStyle(theme.text(scheme))
-                                Spacer()
-                                Image(systemName: selectedIds.contains(customer.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(selectedIds.contains(customer.id) ? theme.primary : theme.secondaryText(scheme))
-                            }
-                        }
-                    }
+                    CustomerMultiPicker(customers: store.customers, selected: selectedIds, onToggle: toggle)
                 }
                 Section("Order Details") {
                     DatePicker("Date", selection: $date, displayedComponents: .date)
@@ -1042,6 +1018,49 @@ struct SettingsTextRow: View {
             Spacer()
             Text(value).fontWeight(.semibold).foregroundStyle(theme.text(scheme)).multilineTextAlignment(.trailing)
         }
+    }
+}
+
+/// Search box + fixed-height scrolling list, so you never scroll the whole page to find a customer.
+struct CustomerMultiPicker: View {
+    @Environment(\.colorScheme) private var scheme
+    let customers: [Customer]
+    let selected: Set<String>
+    let onToggle: (String) -> Void
+    @State private var query = ""
+    private let theme = AppTheme()
+
+    var body: some View {
+        SearchField(text: $query, placeholder: "Search customer by name or phone...")
+            .listRowBackground(Color.clear)
+        if !selected.isEmpty {
+            Text(customers.filter { selected.contains($0.id) }.map(\.name).joined(separator: ", "))
+                .font(.footnote.bold()).foregroundStyle(theme.primary)
+        }
+        let shown = customers.filter { query.isEmpty || $0.name.localizedStandardContains(query) || $0.phone.localizedStandardContains(query) }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(shown) { customer in
+                    Button { onToggle(customer.id) } label: {
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(customer.name).foregroundStyle(theme.text(scheme))
+                                Text(customer.phone).font(.caption).foregroundStyle(theme.secondaryText(scheme))
+                            }
+                            Spacer()
+                            Image(systemName: selected.contains(customer.id) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(selected.contains(customer.id) ? theme.primary : theme.secondaryText(scheme))
+                        }
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Divider()
+                }
+                if shown.isEmpty { Text("No customer found.").foregroundStyle(theme.secondaryText(scheme)).padding(8) }
+            }
+        }
+        .frame(height: 260)
     }
 }
 

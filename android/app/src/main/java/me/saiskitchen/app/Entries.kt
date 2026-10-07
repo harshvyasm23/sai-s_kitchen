@@ -73,11 +73,7 @@ fun AddTiffinScreen(store: KitchenStore, onClose: () -> Unit) {
     }) {
         AppCard {
             Text("Customers (${selected.size} selected)", fontWeight = FontWeight.Bold)
-            if (store.customers.isEmpty()) Text("Add a customer first (Customers tab).", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (store.customers.size > 5) SearchField(query, { query = it }, "Search customer by name or phone...")
-            store.customers.filter { query.isBlank() || it.name.contains(query, true) || it.phone.contains(query, true) }.forEach { c ->
-                CustomerPickRow(c, c.id in selected) { selected = if (c.id in selected) selected - c.id else selected + c.id }
-            }
+            CustomerPicker(store.customers, selected) { selected = it }
         }
         AppCard {
             Text("Entry Details", fontWeight = FontWeight.Bold)
@@ -142,11 +138,7 @@ fun AddCateringScreen(store: KitchenStore, onClose: () -> Unit) {
     }) {
         AppCard {
             Text("Customers (${selected.size} selected)", fontWeight = FontWeight.Bold)
-            if (store.customers.isEmpty()) Text("Add a customer first (Customers tab).", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (store.customers.size > 5) SearchField(query, { query = it }, "Search customer by name or phone...")
-            store.customers.filter { query.isBlank() || it.name.contains(query, true) || it.phone.contains(query, true) }.forEach { c ->
-                CustomerPickRow(c, c.id in selected) { selected = if (c.id in selected) selected - c.id else selected + c.id }
-            }
+            CustomerPicker(store.customers, selected) { selected = it }
         }
         AppCard {
             Text("Order Details", fontWeight = FontWeight.Bold)

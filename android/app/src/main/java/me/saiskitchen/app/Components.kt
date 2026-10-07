@@ -146,6 +146,32 @@ fun EntryCard(title: String, subtitle: String, total: String, color: Color, trai
     }
 }
 
+/** Search box + a fixed-height scrolling list, so you never scroll the whole page to find a customer. */
+@Composable
+fun CustomerPicker(customers: List<Customer>, selected: Set<String>, onChange: (Set<String>) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    if (customers.isEmpty()) {
+        Text("Add a customer first (Customers tab).", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    SearchField(query, { query = it }, "Search customer by name or phone...")
+    if (selected.isNotEmpty()) {
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(customers.filter { it.id in selected }.joinToString { it.name }, color = Brand.primary, fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = { onChange(emptySet()) }) { Text("Clear") }
+        }
+    }
+    val shown = customers.filter { query.isBlank() || it.name.contains(query, true) || it.phone.contains(query, true) }
+    Spacer(Modifier.height(6.dp))
+    Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
+        shown.forEach { c ->
+            CustomerPickRow(c, c.id in selected) { onChange(if (c.id in selected) selected - c.id else selected + c.id) }
+        }
+        if (shown.isEmpty()) Text("No customer found.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(8.dp))
+    }
+}
+
 @Composable
 fun CustomerPickRow(c: Customer, selected: Boolean, onToggle: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable { onToggle() }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {

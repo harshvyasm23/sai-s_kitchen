@@ -1,6 +1,7 @@
 package me.saiskitchen.app
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -107,6 +108,7 @@ fun BulkInvoicesScreen(store: KitchenStore, onClose: () -> Unit) {
             TextButton(onClick = { unselected = emptySet() }) { Text("Select all") }
             TextButton(onClick = { unselected = rows.map { it.first.id }.toSet() }) { Text("Select none") }
         }
+        Column(Modifier.fillMaxWidth().heightIn(max = 340.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) {
         rows.forEach { (c, s) ->
             val due = (s.previousBalance + s.tiffinTotal + s.cateringTotal - s.paidInPeriod)
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -118,6 +120,7 @@ fun BulkInvoicesScreen(store: KitchenStore, onClose: () -> Unit) {
                 Text(Fmt.currency(due, cur), fontWeight = FontWeight.Bold, color = Brand.primary)
                 TextButton(onClick = { dueFor = c }) { Text("+ due") }
             }
+        }
         }
         if (rows.isEmpty()) Text("No entries in this period.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         else {
