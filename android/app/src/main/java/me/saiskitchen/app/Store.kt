@@ -16,6 +16,10 @@ class KitchenStore(context: Context) {
     var tiffins by mutableStateOf(listOf<TiffinEntry>()); private set
     var cateringOrders by mutableStateOf(listOf<CateringOrder>()); private set
     var payments by mutableStateOf(listOf<Payment>()); private set
+    var schedules by mutableStateOf(listOf<Schedule>()); private set
+    var skips by mutableStateOf(listOf<Skip>()); private set
+    var delivered by mutableStateOf(setOf<String>()); private set
+    var menu by mutableStateOf(DefaultMenu.days); private set
     var settings by mutableStateOf(AppSettings()); private set
     var themeMode by mutableStateOf(ThemeMode.Auto); private set
 
@@ -27,6 +31,10 @@ class KitchenStore(context: Context) {
             payments = JSONArray(prefs.getString(K_PAYMENTS, "[]")).map { paymentFrom(it) }
             tiffins = JSONArray(prefs.getString(K_TIFFINS, "[]")).map { tiffinFrom(it) }
             cateringOrders = JSONArray(prefs.getString(K_CATERING, "[]")).map { orderFrom(it) }
+            schedules = JSONArray(prefs.getString(K_SCHEDULES, "[]")).map { scheduleFrom(it) }
+            skips = JSONArray(prefs.getString(K_SKIPS, "[]")).map { skipFrom(it) }
+            delivered = JSONArray(prefs.getString(K_DELIVERED, "[]")).let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }
+            prefs.getString(K_MENU, null)?.let { menu = menuFrom(JSONObject(it)) }
             prefs.getString(K_SETTINGS, null)?.let { settings = settingsFrom(JSONObject(it)) }
             themeMode = runCatching { ThemeMode.valueOf(prefs.getString(K_THEME, "Auto")!!) }.getOrDefault(ThemeMode.Auto)
         } catch (e: Exception) {
@@ -38,6 +46,76 @@ class KitchenStore(context: Context) {
     private fun savePayments() = prefs.edit().putString(K_PAYMENTS, JSONArray(payments.map { it.toJson() }).toString()).apply()
     private fun saveTiffins() = prefs.edit().putString(K_TIFFINS, JSONArray(tiffins.map { it.toJson() }).toString()).apply()
     private fun saveCatering() = prefs.edit().putString(K_CATERING, JSONArray(cateringOrders.map { it.toJson() }).toString()).apply()
+
+    // ---- daily plan: weekly schedules, skipped days, delivered ticks, weekly menu ----
+    fun schedule(customerId: String) = schedules.firstOrNull { it.customerId == customerId }
+    fun setSchedule(s: Schedule) {
+        schedules = schedules.filter { it.customerId != s.customerId } + s
+        prefs.edit().putString(K_SCHEDULES, JSONArray(schedules.map { it.toJson() }).toString()).apply()
+    }
+    fun removeSchedule(customerId: String) {
+        schedules = schedules.filter { it.customerId != customerId }
+        prefs.edit().putString(K_SCHEDULES, JSONArray(schedules.map { it.toJson() }).toString()).apply()
+    }
+    private fun saveSkips() = prefs.edit().putString(K_SKIPS, JSONArray(skips.map { it.toJson() }).toString()).apply()
+    fun isSkipped(customerId: String, date: LocalDate) = skips.any { it.date == date && (it.customerId == customerId || it.customerId.isEmpty()) }
+    fun isHoliday(date: LocalDate) = skips.any { it.date == date && it.customerId.isEmpty() }
+    fun setSkip(customerId: String, date: LocalDate, on: Boolean) {
+        skips = skips.filter { !(it.customerId == customerId && it.date == date) } + (if (on) listOf(Skip(customerId = customerId, date = date)) else emptyList())
+        saveSkips()
+    }
+    fun toggleDelivered(customerId: String, date: LocalDate) {
+        val k = "$date|$customerId"
+        delivered = if (k in delivered) delivered - k else delivered + k
+        prefs.edit().putString(K_DELIVERED, JSONArray(delivered.toList()).toString()).apply()
+    }
+    fun setMenu(m: Map<Int, String>) { menu = m; prefs.edit().putString(K_MENU, JSONObject(m.mapKeys { it.key.toString() }).toString()).apply() }
+
+    /** Everyone expected on [date] (from weekly schedules) plus anyone who already has an entry that day. */
+    fun plannedFor(date: LocalDate): List<Planned> {
+        val dayEntries = tiffins.filter { it.date == date }
+        val out = mutableListOf<Planned>()
+        val seen = HashSet<String>()
+        for (s in schedules) {
+            val c = customers.firstOrNull { it.id == s.customerId && it.isActive } ?: continue
+            if (date.dayOfWeek.value !in s.days) continue
+            seen.add(c.id)
+            out.add(Planned(c, s.noon, s.evening, s.place, dayEntries.firstOrNull { it.customerId == c.id }, isSkipped(c.id, date), true))
+        }
+        for (e in dayEntries) {
+            val c = customers.firstOrNull { it.id == e.customerId } ?: continue
+            if (!seen.add(c.id)) continue
+            val q = e.quantity.coerceAtLeast(1.0)
+            val rate = e.deliveryCharge / q
+            val place = when { e.deliveryCharge == 0.0 -> "home"; Math.abs(rate - 1.0) < 0.01 -> "omena"; else -> "other" }
+            out.add(Planned(c, e.noonQty, e.eveningQty, place, e, false, false))
+        }
+        return out.sortedBy { it.customer.name.lowercase() }
+    }
+
+    /** Creates the tiffin entry for a planned line. Never creates a second entry on the same day. */
+    fun confirmPlanned(p: Planned, date: LocalDate): Boolean {
+        if (p.entry != null || p.skipped || p.qty <= 0.0) return false
+        if (tiffins.any { it.customerId == p.customer.id && it.date == date }) return false
+        val rate = WhatsAppParser.placeByKey(p.place)?.rate ?: settings.defaultDeliveryCharge
+        addTiffins(listOf(TiffinEntry(date = date, customerId = p.customer.id, noonQty = p.noon, eveningQty = p.evening,
+            unitPrice = settings.defaultTiffinPrice, deliveryCharge = (rate * p.qty).cents(), notes = "Scheduled")))
+        return true
+    }
+
+    /** Backup support for the plan data. */
+    fun exportExtras(o: JSONObject) {
+        o.put("schedules", JSONArray(schedules.map { it.toJson() })).put("skips", JSONArray(skips.map { it.toJson() }))
+            .put("menu", JSONObject(menu.mapKeys { it.key.toString() }))
+    }
+    fun importExtras(root: JSONObject) {
+        runCatching {
+            root.optJSONArray("schedules")?.map { scheduleFrom(it) }?.filter { s -> customers.any { it.id == s.customerId } && schedule(s.customerId) == null }
+                ?.forEach { setSchedule(it) }
+            root.optJSONArray("skips")?.map { skipFrom(it) }?.filter { n -> skips.none { it.id == n.id } }?.let { if (it.isNotEmpty()) { skips = skips + it; saveSkips() } }
+            root.optJSONObject("menu")?.let { setMenu(menuFrom(it)) }
+        }
+    }
 
     fun addPayment(p: Payment) { payments = (payments + p).sortedBy { it.date }; savePayments() }
     fun addPayments(list: List<Payment>) { payments = (payments + list).sortedBy { it.date }; savePayments() }
@@ -143,13 +221,16 @@ class KitchenStore(context: Context) {
         val haveP = payments.map { it.id }.toSet()
         val newP = parsed.payments.filter { it.id !in haveP }
         if (newP.isNotEmpty()) addPayments(newP)
+        runCatching { importExtras(JSONObject(text)) }
         val found = parsed.customers.size + parsed.tiffins.size + parsed.orders.size + parsed.payments.size
         return ImportResult(newC.size, newT.size, newO.size, found - newC.size - newT.size - newO.size - newP.size, newP.size, parsed.notes)
     }
 
     fun clearAllData() {
         customers = emptyList(); tiffins = emptyList(); cateringOrders = emptyList(); payments = emptyList()
+        schedules = emptyList(); skips = emptyList(); delivered = emptySet()
         saveCustomers(); saveTiffins(); saveCatering(); savePayments()
+        prefs.edit().remove(K_SCHEDULES).remove(K_SKIPS).remove(K_DELIVERED).apply()
     }
 
     fun seedSampleData() {
@@ -215,6 +296,10 @@ class KitchenStore(context: Context) {
         private const val K_CATERING = "catering"
         private const val K_SETTINGS = "settings"
         private const val K_THEME = "theme"
+        private const val K_SCHEDULES = "schedules"
+        private const val K_SKIPS = "skips"
+        private const val K_DELIVERED = "delivered"
+        private const val K_MENU = "menu"
     }
 }
 
@@ -290,3 +375,18 @@ data class ImportResult(val customers: Int, val tiffins: Int, val orders: Int, v
         if (notes.isNotEmpty()) append("\n\nCheck these dates:\n" + notes.take(12).joinToString("\n") { "• $it" } + if (notes.size > 12) "\n…and ${notes.size - 12} more" else "")
     }
 }
+
+private fun Schedule.toJson() = JSONObject().put("customerId", customerId).put("days", JSONArray(days.sorted()))
+    .put("noon", noon).put("evening", evening).put("place", place)
+
+private fun scheduleFrom(o: JSONObject) = Schedule(
+    customerId = o.getString("customerId"),
+    days = o.optJSONArray("days")?.let { a -> (0 until a.length()).map { a.getInt(it) }.toSet() } ?: setOf(1, 2, 3, 4, 5, 6, 7),
+    noon = o.optDouble("noon", 0.0), evening = o.optDouble("evening", 1.0), place = o.optString("place", "home"),
+)
+
+private fun Skip.toJson() = JSONObject().put("id", id).put("customerId", customerId).put("date", date.toString()).put("note", note)
+private fun skipFrom(o: JSONObject) = Skip(o.getString("id"), o.optString("customerId"), LocalDate.parse(o.getString("date")), o.optString("note"))
+
+private fun menuFrom(o: JSONObject): Map<Int, String> =
+    DefaultMenu.days.mapValues { (d, def) -> o.optString(d.toString(), def) }

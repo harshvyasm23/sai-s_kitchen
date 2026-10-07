@@ -87,6 +87,10 @@ fun AppRoot(store: KitchenStore, sharedText: String? = null) {
             "bulk" -> BulkInvoicesScreen(store, close)
             "datacheck" -> DataCheckScreen(store, close)
             "names" -> StandardizeNamesScreen(store, close)
+            "kitchen" -> KitchenPlanScreen(store, { overlay = it }, close)
+            "schedules" -> SchedulesScreen(store, { overlay = "kitchen" })
+            "menu" -> MenuScreen(store, { overlay = "kitchen" })
+            "money" -> MoneyScreen(store, { overlay = it }, close)
         }
         return
     }
@@ -111,7 +115,7 @@ fun AppRoot(store: KitchenStore, sharedText: String? = null) {
     ) { inner ->
         androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().padding(bottom = inner.calculateBottomPadding())) {
             when (tab) {
-                0 -> DashboardScreen(store)
+                0 -> DashboardScreen(store) { overlay = it }
                 1 -> CustomersScreen(store)
                 2 -> NewEntryScreen { overlay = it }
                 3 -> ReportsScreen(store)

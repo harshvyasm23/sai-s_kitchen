@@ -32,7 +32,7 @@ enum class Period(val label: String) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun DashboardScreen(store: KitchenStore) {
+fun DashboardScreen(store: KitchenStore, onOpen: (String) -> Unit = {}) {
     var period by rememberSaveable { mutableStateOf(Period.Today) }
     var customStart by remember { mutableStateOf(LocalDate.now()) }
     var customEnd by remember { mutableStateOf(LocalDate.now()) }
@@ -57,6 +57,16 @@ fun DashboardScreen(store: KitchenStore) {
             }
         }
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            val todayPlan = store.plannedFor(today).filter { it.entry != null || (!it.skipped && !store.isHoliday(today)) }
+            AppCard(onClick = { onOpen("kitchen") }) {
+                Text("Today's Kitchen", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("${todayPlan.sumOf { it.entry?.quantity ?: it.qty }.clean()} tiffins to cook • ${todayPlan.size} customers", color = Brand.primary, fontWeight = FontWeight.SemiBold)
+                Text("Route, schedules, skip days, weekly menu poster", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            AppCard(onClick = { onOpen("money") }) {
+                Text("Money Overview", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Who owes money, WhatsApp reminders, best customers", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             AppCard {
                 Text("Period", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                 Spacer(Modifier.height(8.dp))

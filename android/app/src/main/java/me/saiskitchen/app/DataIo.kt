@@ -49,6 +49,7 @@ object DataIo {
             JSONObject().put("id", it.id).put("customerId", it.customerId).put("date", it.date.toString())
                 .put("amount", it.amount).put("note", it.note).put("createdAt", iso(it.createdAt))
         }))
+        if (kind == "all") store.exportExtras(o)
         o.put("exportDate", Instant.now().toString())
         return o.toString(2)
     }

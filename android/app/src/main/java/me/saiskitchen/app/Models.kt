@@ -69,6 +69,36 @@ data class Payment(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
+/** A regular customer's weekly pattern. days = ISO weekdays (1 = Monday ... 7 = Sunday). place = a WhatsAppParser.PLACES key. */
+data class Schedule(
+    val customerId: String,
+    val days: Set<Int> = setOf(1, 2, 3, 4, 5, 6, 7),
+    val noon: Double = 0.0,
+    val evening: Double = 1.0,
+    val place: String = "home",
+)
+
+/** A day with no tiffin. customerId = "" means a holiday for everyone. */
+data class Skip(val id: String = newId(), val customerId: String, val date: LocalDate, val note: String = "")
+
+/** One line of the day plan: who, how many, where, and what has happened already. */
+data class Planned(
+    val customer: Customer, val noon: Double, val evening: Double, val place: String,
+    val entry: TiffinEntry?, val skipped: Boolean, val scheduled: Boolean,
+) { val qty get() = noon + evening }
+
+object DefaultMenu {
+    val days = mapOf(
+        1 to "Every Monday the menu changes",
+        2 to "Dal, Rice, Sabji, Roti",
+        3 to "Rajma Rice & Roti  OR  Dal Makhni, Jeera Rice, Roti",
+        4 to "Kadhi, Mung ki Sabji, Roti",
+        5 to "Paneer ki Sabji, Pulav Parotha  OR  Mixveg Pulav Parathe",
+        6 to "Onion Potato / Baingan Potato Sabji, Parathe  OR  Masala Khichdi / Palak Aloo, Pulav Parathe",
+        7 to "Chole Chana, Rice Parathe",
+    )
+}
+
 data class AppSettings(
     val currency: String = "EUR",
     val defaultTiffinPrice: Double = 8.0,
