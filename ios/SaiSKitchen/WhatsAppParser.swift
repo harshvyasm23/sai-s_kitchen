@@ -11,6 +11,8 @@ struct ParsedTiffin {
     var delivery: Double
     var place: String?
     var warnings: [String]
+    var placeKey: String? = nil
+    var rawPlace: String? = nil
 }
 
 struct ParsedItem {
@@ -91,14 +93,44 @@ enum WhatsAppParser {
     }
 
     // MARK: places
+    struct Place {
+        let key: String
+        let label: String
+        let rate: Double   // charge PER TIFFIN
+        let words: [String]
+    }
+
+    static let places: [Place] = [
+        Place(key: "home", label: "Home / pickup", rate: 0, words: ["home", "ghar", "pickup", "pick", "self", "collect", "takeaway", "free", "nodelivery"]),
+        Place(key: "omena", label: "Iso Omena", rate: 1.0, words: ["omena", "isoomena"]),
+        Place(key: "pasila", label: "Pasila", rate: 0.5, words: ["pasila"]),
+        Place(key: "lepp", label: "Leppävaara", rate: 0.5, words: ["leppavaara", "leppavara", "lepavara", "sello"]),
+        Place(key: "myyr", label: "Myyrmanni", rate: 0.5, words: ["myyrmanni", "myyrmaki", "myrmanni"]),
+        Place(key: "station", label: "Helsinki Railway Station", rate: 0.5, words: ["helsinki", "hki", "railway", "rautatie", "rautatieasema", "station", "stn", "asema"]),
+    ]
+    private static let placeTail: Set<String> = ["iso", "railway", "helsinki", "central", "at", "in"]
+
+    static func placeByKey(_ key: String?) -> Place? { places.first { $0.key == key } }
+
+    private static func wordMatch(_ tok: String, _ word: String) -> Bool {
+        if tok == word { return true }
+        if tok.count < 5 || word.count < 5 { return false }
+        return lev(tok, word) <= (word.count >= 8 ? 2 : 1)
+    }
+
+    static func letterTokens(_ s: String) -> [String] {
+        norm(s).components(separatedBy: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz").inverted).filter { !$0.isEmpty }
+    }
+
+    /// Finds a delivery stop in free text, forgiving of spelling mistakes ("Lepavara", "passila").
+    static func findPlace(_ text: String) -> Place? {
+        let toks = letterTokens(text)
+        for p in places where toks.contains(where: { t in p.words.contains { wordMatch(t, $0) } }) { return p }
+        return nil
+    }
+
     static func placeInfo(_ text: String) -> (label: String, delivery: Double, warning: String?) {
-        let p = norm(text)
-        if has(#"home|ghar|pick\s*up|pickup|self|collect|take\s*away|takeaway|no delivery|free"#, p) { return ("Home / pickup", 0, nil) }
-        if has("omena", p) { return ("Iso Omena", 1.0, nil) }
-        if has("pasila", p) { return ("Pasila", 0.5, nil) }
-        if has(#"lepp?a+v?a+ra+|sello"#, p) { return ("Leppävaara", 0.5, nil) }
-        if has(#"myyrman|myyrmaki"#, p) { return ("Myyrmanni", 0.5, nil) }
-        if has(#"helsinki|railway|rautatie|station|asema|hki"#, p) { return ("Helsinki Railway Station", 0.5, nil) }
+        if let p = findPlace(text) { return (p.label, p.rate, nil) }
         let t = text.trimmingCharacters(in: .whitespaces)
         return (t, 0.5, "Unknown place '\(t)' - used 0.50 delivery")
     }
@@ -128,10 +160,18 @@ enum WhatsAppParser {
         let low = norm(body)
         let full = norm(s)
         var noon = 0.0, evening = 0.0
-        for g in all("(\(NUM))\\s*(?:\(TIF)\\s*)?(?:noon|lunch|morning)", low) { noon += num(g[1]) }
-        for g in all("(?:noon|lunch|morning)\\s*[:=x]?\\s*(\(NUM))", low) { noon += num(g[1]) }
-        for g in all("(\(NUM))\\s*(?:\(TIF)\\s*)?(?:evening|dinner|night)", low) { evening += num(g[1]) }
-        for g in all("(?:evening|dinner|night)\\s*[:=x]?\\s*(\(NUM))", low) { evening += num(g[1]) }
+        // each number is used once, so "1 noon 1 evening" is not counted twice
+        var rest = low
+        func consume(_ pattern: String, _ add: (Double) -> Void) {
+            while let m = first(pattern, rest) {
+                add(num(m.g[1]))
+                rest = (rest as NSString).replacingCharacters(in: m.range, with: String(repeating: " ", count: m.range.length))
+            }
+        }
+        consume("(\(NUM))\\s*(?:\(TIF)\\s*)?(?:noon|lunch|morning)") { noon += $0 }
+        consume("(\(NUM))\\s*(?:\(TIF)\\s*)?(?:evening|dinner|night)") { evening += $0 }
+        consume("(?:noon|lunch|morning)\\s*[:=x]?\\s*(\(NUM))") { noon += $0 }
+        consume("(?:evening|dinner|night)\\s*[:=x]?\\s*(\(NUM))") { evening += $0 }
         if noon + evening == 0 {
             var q = 1.0
             if let qm = first("(\(NUM))\\s*(?:x\\s*)?\(TIF)", low) ?? first("\(TIF)\\s*[:=x]\\s*(\(NUM))", low) { q = num(qm.g[1]) }
@@ -144,21 +184,37 @@ enum WhatsAppParser {
         }
         var delivery = 0.0
         var label: String? = nil
-        if let place {
-            let info = placeInfo(place)
-            label = info.label; delivery = info.delivery
-            if let warn = info.warning { w.append(warn) }
-        } else {
-            w.append("No place given - no delivery charged")
-        }
+        var placeKey: String? = nil
+        var rate = 0.0
+        let qty = noon + evening
+        var rawPlace = place
         if let dm = first("delivery\\s*[:=]?\\s*(\(NUM))", full) { delivery = num(dm.g[1]) }
         var n = pm.map { cut(s, before: $0.range) } ?? s
         n = replace("(?:€\\s*\(NUM)|\(NUM)\\s*(?:€|eur\\w*)|price\\s*[:=]?\\s*\(NUM)|delivery\\s*[:=]?\\s*\(NUM))", n)
         n = replace("\(NUM)\\s*(?:x\\s*)?", n)
         n = replace("\\b(?:\(TIF)|noon|lunch|morning|evening|dinner|night|delivery|price)\\b|[:=@€+]", n)
         n = tidy(n)
+        if place == nil {
+            // no "at ...": a place typed straight after the name, e.g. "Pranav leppavara 1 tiffin"
+            var toks = n.split(separator: " ").map(String.init)
+            var popped: [String] = []
+            while toks.count > 1, let last = toks.last, findPlace(last) != nil || placeTail.contains(norm(last)) {
+                popped.insert(toks.removeLast(), at: 0)
+            }
+            if !popped.isEmpty, findPlace(popped.joined(separator: " ")) != nil {
+                rawPlace = popped.joined(separator: " ")
+                n = toks.joined(separator: " ")
+            }
+        }
+        if let rp = rawPlace {
+            if let hit = findPlace(rp) { label = hit.label; placeKey = hit.key; rate = hit.rate }
+            else { label = rp.trimmingCharacters(in: .whitespaces); w.append("Unknown place '\(label ?? "")' - please choose") }
+        } else {
+            w.append("No place given - please choose")
+        }
+        delivery = delivery > 0 ? delivery : rate * qty
         if n.isEmpty { w.append("No name found") }
-        return ParsedTiffin(raw: line, name: n, noon: noon, evening: evening, price: price, delivery: delivery, place: label, warnings: w)
+        return ParsedTiffin(raw: line, name: n, noon: noon, evening: evening, price: price, delivery: delivery, place: label, warnings: w, placeKey: placeKey, rawPlace: rawPlace)
     }
 
     // MARK: order items
@@ -275,7 +331,7 @@ enum WhatsAppParser {
     }
 
     // MARK: customer matching
-    private static func lev(_ a: String, _ b: String) -> Int {
+    static func lev(_ a: String, _ b: String) -> Int {
         let a = Array(a), b = Array(b)
         var p = Array(0...b.count)
         if a.isEmpty { return b.count }
