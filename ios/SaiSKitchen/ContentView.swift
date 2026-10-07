@@ -801,6 +801,7 @@ struct GenerateInvoiceView: View {
     @State private var generatedURL: URL?
     @State private var savePDF: ExportFile?
     @State private var alertText: String?
+    @State private var dueCustomer: Customer?
     private let theme = AppTheme()
 
     private var tiffins: [TiffinEntry] { selectedCustomer.map { store.tiffins(customerId: $0.id, start: startDate, end: endDate) } ?? [] }
@@ -844,6 +845,10 @@ struct GenerateInvoiceView: View {
                         SummaryRow(label: "Grand Total", value: AppFormatters.currency(grandTotal, code: store.settings.currency), isTotal: true)
                     }
                     Section {
+                        Button { dueCustomer = selectedCustomer } label: {
+                            let pd = store.previousDue(customerId: selectedCustomer.id, start: startDate, end: endDate)
+                            Label(pd > 0 ? "Previous unpaid: \(AppFormatters.currency(pd, code: store.settings.currency)) (edit)" : "Add previous unpaid amount", systemImage: "plus.circle")
+                        }
                         Button { generate(customer: selectedCustomer) } label: { Label("Generate PDF Invoice", systemImage: "square.and.arrow.down") }
                         if let generatedURL {
                             Button { savePDF = ExportFile(url: generatedURL) } label: { Label("Download PDF (Save to Files)", systemImage: "arrow.down.doc.fill") }
@@ -853,6 +858,7 @@ struct GenerateInvoiceView: View {
                 }
             }
             .sheet(item: $savePDF) { FileSaver(url: $0.url) }
+            .sheet(item: $dueCustomer, onDismiss: { generatedURL = nil }) { PreviousDueSheet(customer: $0, start: startDate, end: endDate) }
             .navigationTitle("Generate Invoice")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .alert("Invoice", isPresented: Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })) { Button("OK", role: .cancel) {} } message: { Text(alertText ?? "") }

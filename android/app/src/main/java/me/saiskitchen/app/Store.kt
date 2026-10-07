@@ -48,23 +48,27 @@ class KitchenStore(context: Context) {
         tiffins.filter { it.customerId == customerId && (start == null || !it.date.isBefore(start)) && !it.date.isAfter(end) }.sumOf { it.total } +
             cateringOrders.filter { it.customerId == customerId && (start == null || !it.date.isBefore(start)) && !it.date.isAfter(end) }.sumOf { it.total }
 
+    /** Money received (positive payments only). */
     fun paid(customerId: String, start: LocalDate?, end: LocalDate): Double =
-        payments.filter { it.customerId == customerId && (start == null || !it.date.isBefore(start)) && !it.date.isAfter(end) }.sumOf { it.amount }
+        payments.filter { it.customerId == customerId && it.amount > 0 && (start == null || !it.date.isBefore(start)) && !it.date.isAfter(end) }.sumOf { it.amount }
 
-    /** Unpaid amount carried in from before [date] (negative = customer has credit). */
-    fun balanceBefore(customerId: String, date: LocalDate): Double =
-        (billed(customerId, null, date.minusDays(1)) - paid(customerId, null, date.minusDays(1))).cents()
+    /** Previous unpaid amount that YOU added by hand for this period (stored as a negative payment). */
+    fun previousDue(customerId: String, start: LocalDate, end: LocalDate): Double =
+        -payments.filter { it.customerId == customerId && it.amount < 0 && !it.date.isBefore(start) && !it.date.isAfter(end) }.sumOf { it.amount }
 
-    /** One row per customer who was billed in the period or still owes money, as of the end of the period. */
+    fun previousDueEntries(customerId: String, start: LocalDate, end: LocalDate): List<Payment> =
+        payments.filter { it.customerId == customerId && it.amount < 0 && !it.date.isBefore(start) && !it.date.isAfter(end) }
+
+    /** One row per customer billed in the period or with a previous due added; balance = previous + billed - paid. */
     fun outstandingRows(start: LocalDate, end: LocalDate): List<OutstandingRow> =
         customers.map { c ->
             OutstandingRow(
                 customerId = c.id, name = c.name, phone = c.phone,
                 tiffin = tiffins(c.id, start, end).sumOf { it.total }.cents(),
                 catering = catering(c.id, start, end).sumOf { it.total }.cents(),
-                previous = balanceBefore(c.id, start), paid = paid(c.id, start, end).cents(),
+                previous = previousDue(c.id, start, end).cents(), paid = paid(c.id, start, end).cents(),
             )
-        }.filter { it.tiffin + it.catering > 0 || Math.abs(it.balance) > 0.004 }.sortedBy { it.name.lowercase() }
+        }.filter { it.tiffin + it.catering > 0 || it.previous > 0 || it.paid > 0 }.sortedBy { it.name.lowercase() }
 
     fun addCustomer(c: Customer) { customers = customers + c; saveCustomers() }
     fun updateCustomer(c: Customer) {

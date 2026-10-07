@@ -22,6 +22,52 @@ struct ShareSheetMany: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
+/// Add (or remove) a previous unpaid amount for one customer in a period. Nothing is added automatically.
+struct PreviousDueSheet: View {
+    @Environment(KitchenStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let customer: Customer
+    let start: Date
+    let end: Date
+    @State private var amount = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Previous unpaid: \(customer.name)") {
+                    Text("Add an unpaid amount from an earlier month. It will show on this period's invoice and report.").font(.footnote)
+                    TextField("Amount", text: $amount).keyboardType(.decimalPad)
+                }
+                let entries = store.previousDueEntries(customerId: customer.id, start: start, end: end)
+                if !entries.isEmpty {
+                    Section("Already added") {
+                        ForEach(entries) { p in
+                            HStack {
+                                Text(AppFormatters.currency(-p.amount, code: store.settings.currency))
+                                Spacer()
+                                Button("Remove", role: .destructive) { store.deletePayment(p); dismiss() }.buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Previous due")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        if let a = Double(amount.replacingOccurrences(of: ",", with: ".")), a > 0 {
+                            store.addPayment(Payment(customerId: customer.id, date: start, amount: -a, note: "Previous due"))
+                        }
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
 struct ShareItems: Identifiable {
     let id = UUID()
     let items: [Any]
@@ -39,6 +85,7 @@ struct OutstandingReportView: View {
     @State private var payFor: OutstandingRow?
     @State private var payAmount = ""
     @State private var payNote = ""
+    @State private var dueFor: Customer?
     private let theme = AppTheme()
 
     private var label: String { month.formatted(.dateTime.month(.wide).year()) }
@@ -84,6 +131,7 @@ struct OutstandingReportView: View {
                                         payNote = ""
                                         payFor = row
                                     }.buttonStyle(.bordered).tint(theme.primary)
+                                    Button("+ Previous due") { dueFor = store.customers.first { $0.id == row.customerId } }.buttonStyle(.bordered).tint(theme.primary)
                                     if row.balance > 0.004 {
                                         Button("WhatsApp reminder") {
                                             if let u = whatsAppURL(phone: row.phone, text: reminder(row, cur)) { openURL(u) }
@@ -116,6 +164,7 @@ struct OutstandingReportView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .sheet(item: $pdfFile) { ShareSheet(url: $0.url) }
             .sheet(item: $savePDF) { FileSaver(url: $0.url) }
+            .sheet(item: $dueFor) { PreviousDueSheet(customer: $0, start: start, end: end) }
             .alert("Payment from \(payFor?.name ?? "")", isPresented: Binding(get: { payFor != nil }, set: { if !$0 { payFor = nil } })) {
                 TextField("Amount received", text: $payAmount).keyboardType(.decimalPad)
                 TextField("Note (bank / cash)", text: $payNote)
@@ -132,7 +181,7 @@ struct OutstandingReportView: View {
 
     private func detail(_ r: OutstandingRow, _ cur: String) -> String {
         var t = "Billed \(AppFormatters.currency(r.billed, code: cur))"
-        if r.previous > 0.004 { t += " + earlier \(AppFormatters.currency(r.previous, code: cur))" }
+        if r.previous > 0.004 { t += " + previous \(AppFormatters.currency(r.previous, code: cur))" }
         if r.paid > 0 { t += " - paid \(AppFormatters.currency(r.paid, code: cur))" }
         return t
     }
@@ -166,6 +215,7 @@ struct BulkInvoicesView: View {
     @State private var share: ShareItems?
     @State private var savePDF: ExportFile?
     @State private var alertText: String?
+    @State private var dueFor: Customer?
     private let theme = AppTheme()
 
     private var rows: [BulkRow] {
@@ -217,6 +267,7 @@ struct BulkInvoicesView: View {
                                 Text(AppFormatters.currency(due(s), code: cur)).bold().foregroundStyle(theme.primary)
                             }
                         }
+                        .swipeActions { Button("+ due") { dueFor = c }.tint(theme.primary) }
                     }
                     if all.isEmpty { Text("No entries in this period.").foregroundStyle(theme.secondaryText(scheme)) }
                 }
@@ -235,6 +286,7 @@ struct BulkInvoicesView: View {
             .navigationTitle("Bulk Invoices")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .sheet(item: $share) { ShareSheetMany(items: $0.items) }
+            .sheet(item: $dueFor) { PreviousDueSheet(customer: $0, start: startDate, end: endDate) }
             .sheet(item: $savePDF) { FileSaver(url: $0.url) }
             .alert("Invoices", isPresented: Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })) { Button("OK", role: .cancel) {} } message: { Text(alertText ?? "") }
         }

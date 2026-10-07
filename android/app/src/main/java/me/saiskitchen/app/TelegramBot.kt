@@ -127,9 +127,9 @@ object TelegramBot {
             return EntryWriter.undo(store, b)
         }
         if (t.startsWith("/outstanding")) {
-            val rows = store.outstandingRows(Fmt.startOfMonth(LocalDate.now().minusYears(5)), LocalDate.now()).filter { it.balance > 0.004 }
+            val rows = store.outstandingRows(Fmt.startOfMonth(), Fmt.endOfMonth()).filter { it.balance > 0.004 }
             if (rows.isEmpty()) return "Nobody owes anything 🎉"
-            return "Outstanding: " + Fmt.currency(rows.sumOf { it.balance }, store.settings.currency) + "\n" +
+            return "Outstanding this month: " + Fmt.currency(rows.sumOf { it.balance }, store.settings.currency) + "\n" +
                 rows.sortedByDescending { it.balance }.joinToString("\n") { "${it.name}: ${Fmt.currency(it.balance, store.settings.currency)}" }
         }
         if (t.startsWith("/paid")) {
@@ -142,7 +142,7 @@ object TelegramBot {
             if (hits.size > 1) return "More than one match: " + hits.joinToString { it.name } + ". Type the full name."
             val c = hits[0]
             store.addPayment(Payment(customerId = c.id, amount = amt, note = "Telegram"))
-            val bal = store.balanceBefore(c.id, LocalDate.now().plusDays(1))
+            val bal = store.outstandingRows(Fmt.startOfMonth(), Fmt.endOfMonth()).firstOrNull { it.customerId == c.id }?.balance ?: 0.0
             return "Recorded ${Fmt.currency(amt, store.settings.currency)} from ${c.name} ✅\nStill owes: ${Fmt.currency(maxOf(bal, 0.0), store.settings.currency)}"
         }
         val today = LocalDate.now()

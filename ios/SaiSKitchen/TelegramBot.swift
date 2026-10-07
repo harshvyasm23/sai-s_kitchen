@@ -84,10 +84,9 @@ enum TelegramBot {
         }
         if t.hasPrefix("/outstanding") {
             let cur = store.settings.currency
-            let start = Calendar.current.date(byAdding: .year, value: -5, to: Date()) ?? Date()
-            let rows = store.outstandingRows(start: start, end: Date()).filter { $0.balance > 0.004 }
+            let rows = store.outstandingRows(start: AppFormatters.startOfMonth(), end: AppFormatters.endOfMonth()).filter { $0.balance > 0.004 }
             if rows.isEmpty { return "Nobody owes anything \u{1F389}" }
-            return "Outstanding: " + AppFormatters.currency(rows.reduce(0) { $0 + $1.balance }, code: cur) + "\n" +
+            return "Outstanding this month: " + AppFormatters.currency(rows.reduce(0) { $0 + $1.balance }, code: cur) + "\n" +
                 rows.sorted { $0.balance > $1.balance }.map { "\($0.name): \(AppFormatters.currency($0.balance, code: cur))" }.joined(separator: "\n")
         }
         if t.hasPrefix("/paid") {
@@ -106,8 +105,7 @@ enum TelegramBot {
             if hits.count > 1 { return "More than one match: " + hits.map(\.name).joined(separator: ", ") + ". Type the full name." }
             let c = hits[0]
             store.addPayment(Payment(customerId: c.id, amount: amount, note: "Telegram"))
-            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
-            let bal = store.balanceBefore(customerId: c.id, date: tomorrow)
+            let bal = store.outstandingRows(start: AppFormatters.startOfMonth(), end: AppFormatters.endOfMonth()).first { $0.customerId == c.id }?.balance ?? 0
             let cur = store.settings.currency
             return "Recorded \(AppFormatters.currency(amount, code: cur)) from \(c.name) \u{2705}\nStill owes: \(AppFormatters.currency(max(bal, 0), code: cur))"
         }

@@ -26,8 +26,39 @@ fun InvoicesScreen(onOpen: (String) -> Unit) {
 
 fun KitchenStore.invoiceFor(c: Customer, kind: InvoiceKind, start: LocalDate, end: LocalDate) = InvoiceSummary(
     c, kind, start, end, tiffins(c.id, start, end), catering(c.id, start, end), settings,
-    previousBalance = balanceBefore(c.id, start), paidInPeriod = paid(c.id, start, end),
+    previousBalance = previousDue(c.id, start, end), paidInPeriod = paid(c.id, start, end),
 )
+
+/** Lets you add (or remove) a previous unpaid amount for one customer in a period. Nothing is added automatically. */
+@Composable
+fun PreviousDueDialog(store: KitchenStore, c: Customer, start: LocalDate, end: LocalDate, onDone: () -> Unit) {
+    var amount by remember { mutableStateOf("") }
+    val entries = store.previousDueEntries(c.id, start, end)
+    AlertDialog(
+        onDismissRequest = onDone,
+        title = { Text("Previous unpaid: ${c.name}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Add an unpaid amount from an earlier month. It will show on this period's invoice and report.", fontSize = 12.sp)
+                NumberField("Amount", amount, { amount = it })
+                entries.forEach { p ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text("Added: ${Fmt.currency(-p.amount, store.settings.currency)}", fontSize = 13.sp)
+                        TextButton(onClick = { store.deletePayment(p); onDone() }) { Text("Remove") }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val a = amount.replace(',', '.').toDoubleOrNull()
+                if (a != null && a > 0) store.addPayment(Payment(customerId = c.id, date = start, amount = -a, note = "Previous due"))
+                onDone()
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDone) { Text("Cancel") } },
+    )
+}
 
 fun shareMany(context: android.content.Context, files: List<File>, text: String) {
     val uris = ArrayList(files.map { androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", it) })
@@ -51,6 +82,7 @@ fun BulkInvoicesScreen(store: KitchenStore, onClose: () -> Unit) {
     var q by remember { mutableStateOf("") }
     var unselected by remember { mutableStateOf(setOf<String>()) }
     var message by remember { mutableStateOf<String?>(null) }
+    var dueFor by remember { mutableStateOf<Customer?>(null) }
     val cur = store.settings.currency
     val rows = store.customers.map { c -> c to store.invoiceFor(c, InvoiceKind.Combined, start, end) }
         .filter { (_, s) -> s.tiffins.isNotEmpty() || s.orders.isNotEmpty() }
@@ -84,6 +116,7 @@ fun BulkInvoicesScreen(store: KitchenStore, onClose: () -> Unit) {
                     Text("${s.tiffins.size} tiffin days, ${s.orders.size} orders", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(Fmt.currency(due, cur), fontWeight = FontWeight.Bold, color = Brand.primary)
+                TextButton(onClick = { dueFor = c }) { Text("+ due") }
             }
         }
         if (rows.isEmpty()) Text("No entries in this period.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -117,6 +150,7 @@ fun BulkInvoicesScreen(store: KitchenStore, onClose: () -> Unit) {
             }
         }
     }
+    dueFor?.let { PreviousDueDialog(store, it, start, end) { dueFor = null } }
     message?.let {
         AlertDialog(onDismissRequest = { message = null }, confirmButton = { TextButton(onClick = { message = null }) { Text("OK") } }, text = { Text(it) })
     }
@@ -177,6 +211,11 @@ fun GenerateInvoiceScreen(store: KitchenStore, onClose: () -> Unit) {
                 SummaryRow("Catering Total", Fmt.currency(summary.cateringTotal, cur))
                 SummaryRow("Grand Total", Fmt.currency(summary.grandTotal, cur), isTotal = true)
             }
+            var dueDialog by remember { mutableStateOf(false) }
+            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { dueDialog = true }) {
+                Text(if (summary.previousBalance > 0) "Previous unpaid: ${Fmt.currency(summary.previousBalance, cur)} (edit)" else "Add previous unpaid amount")
+            }
+            if (dueDialog) PreviousDueDialog(store, customer, start, end) { dueDialog = false; file = null }
             Button(modifier = Modifier.fillMaxWidth(), onClick = {
                 if (t.isEmpty() && o.isEmpty()) {
                     message = "No entries for this customer in the selected period."

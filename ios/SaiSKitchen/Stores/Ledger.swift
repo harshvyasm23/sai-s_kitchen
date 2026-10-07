@@ -15,14 +15,18 @@ extension KitchenStore {
         return t + c
     }
 
+    /// Money received (positive payments only).
     func paid(customerId: String, start: Date?, end: Date) -> Double {
-        payments.filter { $0.customerId == customerId && inRange($0.date, start, end) }.reduce(0) { $0 + $1.amount }
+        payments.filter { $0.customerId == customerId && $0.amount > 0 && inRange($0.date, start, end) }.reduce(0) { $0 + $1.amount }
     }
 
-    /// Unpaid amount carried in from before `date` (negative = customer has credit).
-    func balanceBefore(customerId: String, date: Date) -> Double {
-        let dayBefore = Calendar.current.date(byAdding: .day, value: -1, to: date) ?? date
-        return (billed(customerId: customerId, start: nil, end: dayBefore) - paid(customerId: customerId, start: nil, end: dayBefore)).roundedToCents
+    /// Previous unpaid amount YOU added by hand for this period (stored as a negative payment).
+    func previousDue(customerId: String, start: Date, end: Date) -> Double {
+        -payments.filter { $0.customerId == customerId && $0.amount < 0 && inRange($0.date, start, end) }.reduce(0) { $0 + $1.amount }
+    }
+
+    func previousDueEntries(customerId: String, start: Date, end: Date) -> [Payment] {
+        payments.filter { $0.customerId == customerId && $0.amount < 0 && inRange($0.date, start, end) }
     }
 
     func outstandingRows(start: Date, end: Date) -> [OutstandingRow] {
@@ -31,10 +35,10 @@ extension KitchenStore {
                 customerId: c.id, name: c.name, phone: c.phone,
                 tiffin: tiffins(customerId: c.id, start: start, end: end).reduce(0) { $0 + $1.total }.roundedToCents,
                 catering: catering(customerId: c.id, start: start, end: end).reduce(0) { $0 + $1.total }.roundedToCents,
-                previous: balanceBefore(customerId: c.id, date: start),
+                previous: previousDue(customerId: c.id, start: start, end: end).roundedToCents,
                 paid: paid(customerId: c.id, start: start, end: end).roundedToCents)
         }
-        .filter { $0.tiffin + $0.catering > 0 || abs($0.balance) > 0.004 }
+        .filter { $0.tiffin + $0.catering > 0 || $0.previous > 0 || $0.paid > 0 }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
@@ -42,7 +46,7 @@ extension KitchenStore {
         InvoiceSummary(customer: customer, kind: kind, startDate: start, endDate: end,
                        tiffins: tiffins(customerId: customer.id, start: start, end: end),
                        cateringOrders: catering(customerId: customer.id, start: start, end: end), settings: settings,
-                       previousBalance: balanceBefore(customerId: customer.id, date: start),
+                       previousBalance: previousDue(customerId: customer.id, start: start, end: end),
                        paidInPeriod: paid(customerId: customer.id, start: start, end: end).roundedToCents)
     }
 }

@@ -104,6 +104,7 @@ fun OutstandingScreen(store: KitchenStore, onClose: () -> Unit) {
     var month by remember { mutableStateOf(LocalDate.now()) }
     var payFor by remember { mutableStateOf<OutstandingRow?>(null) }
     var showOnlyDue by remember { mutableStateOf(true) }
+    var dueFor by remember { mutableStateOf<Customer?>(null) }
     val cur = store.settings.currency
     val context = androidx.compose.ui.platform.LocalContext.current
     val label = "${month.month.name.lowercase().replaceFirstChar { it.uppercase() }} ${month.year}"
@@ -134,7 +135,7 @@ fun OutstandingScreen(store: KitchenStore, onClose: () -> Unit) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
                         Text(r.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text("Billed ${Fmt.currency(r.billed, cur)}" + (if (r.previous > 0.004) " + earlier ${Fmt.currency(r.previous, cur)}" else "") +
+                        Text("Billed ${Fmt.currency(r.billed, cur)}" + (if (r.previous > 0.004) " + previous ${Fmt.currency(r.previous, cur)}" else "") +
                             (if (r.paid > 0) " − paid ${Fmt.currency(r.paid, cur)}" else ""), fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -143,6 +144,7 @@ fun OutstandingScreen(store: KitchenStore, onClose: () -> Unit) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { payFor = r }) { Text("Record payment") }
+                    OutlinedButton(onClick = { dueFor = store.customers.firstOrNull { it.id == r.customerId } }) { Text("+ Previous due") }
                     if (r.balance > 0.004) OutlinedButton(onClick = { openWhatsApp(context, r.phone, reminderText(r, label, cur)) }) { Text("WhatsApp reminder") }
                 }
             }
@@ -164,10 +166,11 @@ fun OutstandingScreen(store: KitchenStore, onClose: () -> Unit) {
             }
         }
     }
+    dueFor?.let { PreviousDueDialog(store, it, s, e) { dueFor = null } }
     payFor?.let { r ->
         var amount by remember(r.customerId) { mutableStateOf(if (r.balance > 0) "%.2f".format(java.util.Locale.US, r.balance) else "") }
         var note by remember(r.customerId) { mutableStateOf("") }
-        val recent = store.payments.filter { it.customerId == r.customerId }.takeLast(3)
+        val recent = store.payments.filter { it.customerId == r.customerId && it.amount > 0 }.takeLast(3)
         AlertDialog(
             onDismissRequest = { payFor = null },
             title = { Text("Payment from ${r.name}") },
