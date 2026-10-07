@@ -964,6 +964,7 @@ struct SettingsView: View {
             .sheet(isPresented: $showMonthly) { MonthlyEntriesView() }
             .sheet(isPresented: $showAll) { AllEntriesView() }
             .sheet(isPresented: $showOutstanding) { OutstandingReportView() }
+            .sheet(isPresented: $showDataCheck) { DataCheckView() }
             .sheet(item: $exportFile) { ShareSheet(url: $0.url) }
             .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json, .plainText, .data]) { result in
                 switch result {
